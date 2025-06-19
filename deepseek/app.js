@@ -40,10 +40,17 @@ const headerRow = document.getElementById('header-row');
 const dataBody = document.getElementById('data-body');
 const fileInput = document.getElementById('file-input');
 const sqlQuery = document.getElementById('sql-query');
+const chartTypeSelect = document.getElementById('chart-type');
+const xAxisSelect = document.getElementById('x-axis');
+const yAxisSelect = document.getElementById('y-axis');
+const chartCanvas = document.getElementById('chart');
+const chartList = document.getElementById('chart-list');
 
 // Current data storage
 let currentData = [];
 let headers = [];
+let charts = [];
+let currentChart = null;
 
 // Initialize the app
 document.addEventListener('DOMContentLoaded', function() {
@@ -56,6 +63,18 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('add-column').addEventListener('click', addColumn);
     document.getElementById('add-row').addEventListener('click', addRow);
     document.getElementById('clear-data').addEventListener('click', clearData);
+    document.getElementById('create-chart').addEventListener('click', createChart);
+
+    // Tab switching
+    document.querySelectorAll('.tab-button').forEach(button => {
+        button.addEventListener('click', function() {
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            this.classList.add('active');
+            document.getElementById(this.dataset.tab).classList.add('active');
+        });
+    });
 
     // Sample file click handlers
     document.querySelectorAll('#sample-files li').forEach(item => {
@@ -115,6 +134,7 @@ function processCSVData(csvString) {
     
     renderSpreadsheet();
     updateSQLDatabase();
+    updateChartDropdowns();
 }
 
 // Process Excel data
@@ -130,6 +150,7 @@ function processExcelData(arrayBuffer) {
     
     renderSpreadsheet();
     updateSQLDatabase();
+    updateChartDropdowns();
 }
 
 // Render spreadsheet
@@ -146,6 +167,7 @@ function renderSpreadsheet() {
         th.addEventListener('blur', () => {
             headers[index] = th.textContent;
             updateSQLDatabase();
+            updateChartDropdowns();
         });
         headerRow.appendChild(th);
     });
@@ -209,6 +231,28 @@ function updateSQLDatabase() {
     }
 }
 
+// Update chart dropdowns
+function updateChartDropdowns() {
+    xAxisSelect.innerHTML = '';
+    yAxisSelect.innerHTML = '';
+    
+    headers.forEach(header => {
+        const option1 = document.createElement('option');
+        option1.value = header;
+        option1.textContent = header;
+        xAxisSelect.appendChild(option1);
+        
+        const option2 = document.createElement('option');
+        option2.value = header;
+        option2.textContent = header;
+        yAxisSelect.appendChild(option2);
+    });
+    
+    // Default selections
+    if (headers.length >= 1) xAxisSelect.value = headers[0];
+    if (headers.length >= 2) yAxisSelect.value = headers[1];
+}
+
 // Run SQL query
 function runSQL() {
     if (!SQL || !db) {
@@ -240,10 +284,130 @@ function runSQL() {
         
         // Re-render spreadsheet
         renderSpreadsheet();
+        updateChartDropdowns();
         
     } catch (error) {
         alert(`SQL Error: ${error.message}`);
     }
+}
+
+// Create chart
+function createChart() {
+    if (headers.length === 0 || currentData.length === 0) {
+        alert('No data available to create chart');
+        return;
+    }
+    
+    const chartType = chartTypeSelect.value;
+    const xAxis = xAxisSelect.value;
+    const yAxis = yAxisSelect.value;
+    
+    // Get column indexes
+    const xIndex = headers.indexOf(xAxis);
+    const yIndex = headers.indexOf(yAxis);
+    
+    if (xIndex === -1 || yIndex === -1) {
+        alert('Invalid axis selection');
+        return;
+    }
+    
+    // Prepare data
+    const labels = currentData.map(row => row[xIndex]);
+    const dataValues = currentData.map(row => parseFloat(row[yIndex]) || 0);
+    
+    // Create chart config
+    const config = {
+        type: chartType,
+        data: {
+            labels: labels,
+            datasets: [{
+                label: `${yAxis} by ${xAxis}`,
+                data: dataValues,
+                backgroundColor: getChartColors(chartType, dataValues.length),
+                borderColor: '#4CAF50',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: `${yAxis} by ${xAxis}`
+                }
+            }
+        }
+    };
+    
+    // Create chart
+    const chartId = `chart-${Date.now()}`;
+    const chartItem = document.createElement('div');
+    chartItem.className = 'chart-item';
+    chartItem.innerHTML = `
+        <canvas id="${chartId}"></canvas>
+        <div class="chart-item-actions">
+            <button class="delete-chart" data-id="${chartId}">Delete</button>
+            <button class="download-chart" data-id="${chartId}">Download</button>
+        </div>
+    `;
+    
+    chartList.appendChild(chartItem);
+    
+    const chartCtx = document.getElementById(chartId).getContext('2d');
+    const chart = new Chart(chartCtx, config);
+    
+    // Add chart to collection
+    charts.push({
+        id: chartId,
+        chart: chart,
+        type: chartType,
+        xAxis: xAxis,
+        yAxis: yAxis
+    });
+    
+    // Add event listeners for chart actions
+    chartItem.querySelector('.delete-chart').addEventListener('click', function() {
+        const id = this.dataset.id;
+        deleteChart(id);
+    });
+    
+    chartItem.querySelector('.download-chart').addEventListener('click', function() {
+        const id = this.dataset.id;
+        downloadChart(id);
+    });
+}
+
+// Generate colors for charts
+function getChartColors(type, count) {
+    if (type === 'pie' || type === 'doughnut') {
+        return Array(count).fill().map((_, i) => {
+            const hue = (i * 360 / count) % 360;
+            return `hsl(${hue}, 70%, 60%)`;
+        });
+    } else {
+        return ['#4CAF50'];
+    }
+}
+
+// Delete chart
+function deleteChart(id) {
+    const index = charts.findIndex(chart => chart.id === id);
+    if (index !== -1) {
+        charts[index].chart.destroy();
+        charts.splice(index, 1);
+        document.querySelector(`[data-id="${id}"]`).closest('.chart-item').remove();
+    }
+}
+
+// Download chart
+function downloadChart(id) {
+    const chart = charts.find(chart => chart.id === id);
+    if (!chart) return;
+    
+    const link = document.createElement('a');
+    link.download = `chart-${chart.type}-${Date.now()}.png`;
+    link.href = chart.chart.canvas.toDataURL('image/png');
+    link.click();
 }
 
 // Export as CSV
@@ -304,6 +468,7 @@ function addColumn() {
     
     renderSpreadsheet();
     updateSQLDatabase();
+    updateChartDropdowns();
 }
 
 // Add row
@@ -319,6 +484,11 @@ function clearData() {
         headers = [];
         currentData = [];
         renderSpreadsheet();
+        
+        // Clear all charts
+        charts.forEach(chart => chart.chart.destroy());
+        charts = [];
+        chartList.innerHTML = '';
         
         if (db) {
             db.run('DROP TABLE IF EXISTS data;');
