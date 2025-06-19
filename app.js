@@ -25,6 +25,23 @@ function handleCSVUpload(event) {
   });
 }
 
+function loadSample(filePath) {
+  fetch(filePath)
+    .then(res => res.text())
+    .then(text => {
+      Papa.parse(text, {
+        header: true,
+        skipEmptyLines: true,
+        complete: function(results) {
+          csvData = results.data;
+          createSheet(csvData);
+          createSQLiteTable(csvData);
+        }
+      });
+    })
+    .catch(err => alert("Failed to load sample CSV: " + err));
+}
+
 function createSheet(data) {
   const headers = Object.keys(data[0]);
   const rows = data.map(row => headers.map(h => row[h]));
