@@ -1,0 +1,6 @@
+Item ID,Item Name,Category,Stock,Reorder Level,Unit Cost
+I001,Keyboard,Electronics,45,20,450
+I002,Mouse,Electronics,30,10,300
+I003,Notebook,Stationery,100,50,50
+I004,Printer,Electronics,8,5,8000
+I005,Pen,Stationery,200,100,10
