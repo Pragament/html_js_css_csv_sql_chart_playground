@@ -16,19 +16,33 @@
     textarea { width: 100%; height: 100px; }
   </style>
 </head>
-<body>
-  <div id="controls">
-    <input type="file" id="csvInput" accept=".csv" />
-    <button onclick="runSQL()">Run SQL</button>
-    <button onclick="saveAsCSV()">Download Results CSV</button>
+<body style="display: flex; height: 100vh;">
+  <!-- Left Sidebar -->
+  <div style="width: 200px; background: #f4f4f4; padding: 10px;">
+    <h3>Sample CSVs</h3>
+    <ul style="list-style: none; padding-left: 0;">
+      <li><a href="#" onclick="loadSample('samples/sales.csv')">📊 sales.csv</a></li>
+      <li><a href="#" onclick="loadSample('samples/students.csv')">🎓 students.csv</a></li>
+      <li><a href="#" onclick="loadSample('samples/inventory.csv')">📦 inventory.csv</a></li>
+    </ul>
   </div>
-  <div id="spreadsheet"></div>
 
-  <h3>Run SQL Query (use SELECT * FROM data):</h3>
-  <textarea id="sqlQuery">SELECT * FROM data;</textarea>
+  <!-- Main Content -->
+  <div style="flex: 1; display: flex; flex-direction: column;">
+    <div id="controls">
+      <input type="file" id="csvInput" accept=".csv" />
+      <button onclick="runSQL()">Run SQL</button>
+      <button onclick="saveAsCSV()">Download Results CSV</button>
+    </div>
 
-  <h3>SQL Results:</h3>
-  <div id="sql-results"></div>
+    <div id="spreadsheet"></div>
+
+    <h3>Run SQL Query (use SELECT * FROM data):</h3>
+    <textarea id="sqlQuery">SELECT * FROM data;</textarea>
+
+    <h3>SQL Results:</h3>
+    <div id="sql-results"></div>
+  </div>
 
   <script src="app.js"></script>
 </body>
