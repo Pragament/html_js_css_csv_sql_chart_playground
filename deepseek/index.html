@@ -3,8 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Univer Spreadsheet App</title>
+    <title>SheetJS + SQL.js Spreadsheet App</title>
     <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/sql-wasm.js"></script>
 </head>
 <body>
     <div class="app-container">
@@ -17,9 +19,9 @@
             </ul>
             
             <div class="file-import">
-                <h2>Import CSV</h2>
-                <input type="file" id="csv-file" accept=".csv">
-                <button id="import-btn">Import CSV</button>
+                <h2>Import CSV/Excel</h2>
+                <input type="file" id="file-input" accept=".csv,.xlsx,.xls">
+                <button id="import-btn">Import File</button>
             </div>
             
             <div class="sql-section">
@@ -29,32 +31,29 @@
             </div>
             
             <div class="export-section">
-                <button id="export-btn">Export as CSV</button>
+                <button id="export-csv">Export as CSV</button>
+                <button id="export-excel">Export as Excel</button>
             </div>
         </div>
         
         <div class="main-content">
             <div class="toolbar">
-                <button id="create-chart">Create Chart</button>
-                <button id="add-sheet">Add Sheet</button>
+                <button id="add-column">Add Column</button>
+                <button id="add-row">Add Row</button>
+                <button id="clear-data">Clear Data</button>
             </div>
             
-            <div id="univer-container"></div>
+            <div class="spreadsheet-container">
+                <table id="spreadsheet">
+                    <thead>
+                        <tr id="header-row"></tr>
+                    </thead>
+                    <tbody id="data-body"></tbody>
+                </table>
+            </div>
         </div>
     </div>
 
-    <!-- Libraries -->
-    <script src="https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/sql-wasm.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@univerjs/core@latest/dist/univer.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@univerjs/ui@latest/dist/univer-ui.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@univerjs/sheets@latest/dist/univer-sheets.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@univerjs/sheets-formula@latest/dist/univer-sheets-formula.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@univerjs/sheets-numfmt@latest/dist/univer-sheets-numfmt.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@univerjs/sheets-ui@latest/dist/univer-sheets-ui.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@univerjs/sheets-data-validation@latest/dist/univer-sheets-data-validation.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@univerjs/drawing@latest/dist/univer-drawing.min.js"></script>
-    
-    <!-- Main app script -->
     <script src="app.js"></script>
 </body>
 </html>
