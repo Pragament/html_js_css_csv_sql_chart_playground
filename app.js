@@ -60,9 +60,9 @@ function createSheet(data) {
   };
 
   document.getElementById('spreadsheet').innerHTML = '';
-  univer = new UniverCore.UniverSheet();
-  univer.installPlugin(new UniverUI.UniverUI());
-  univer.installPlugin(new UniverSheets.UniverSheets());
+  univer = new Univer.UniverSheet();
+  univer.installPlugin(new Univer.UIPlugin());
+  univer.installPlugin(new Univer.SheetsPlugin());
 
   univer.createUniverSheet(document.getElementById('spreadsheet'), univerData);
 }
@@ -107,9 +107,9 @@ function showSQLResults(columns, values) {
   };
 
   document.getElementById('sql-results').innerHTML = '';
-  univerResults = new UniverCore.UniverSheet();
-  univerResults.installPlugin(new UniverUI.UniverUI());
-  univerResults.installPlugin(new UniverSheets.UniverSheets());
+  univerResults = new Univer.UniverSheet();
+  univerResults.installPlugin(new Univer.UIPlugin());
+  univerResults.installPlugin(new Univer.SheetsPlugin());
 
   univerResults.createUniverSheet(document.getElementById('sql-results'), data);
 }
