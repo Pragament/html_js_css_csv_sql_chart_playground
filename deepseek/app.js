@@ -8,8 +8,10 @@ initSqlJs({
     SQL = sql;
     db = new SQL.Database();
     console.log("SQL.js initialized");
+    document.getElementById('run-sql').disabled = false;
 }).catch(err => {
     console.error("Error loading SQL.js:", err);
+    alert('Failed to load SQL.js. Please refresh the page.');
 });
 
 // Sample CSV data
@@ -45,17 +47,32 @@ const xAxisSelect = document.getElementById('x-axis');
 const yAxisSelect = document.getElementById('y-axis');
 const chartCanvas = document.getElementById('chart');
 const chartList = document.getElementById('chart-list');
+const loading = document.getElementById('loading');
+const formulaBar = document.getElementById('formula-bar');
 
 // Current data storage
 let currentData = [];
 let headers = [];
 let charts = [];
-let currentChart = null;
+let selectedCells = [];
+let selectedRow = null;
+let selectedColumn = null;
+let formulas = []; // Store raw formulas: formulas[row][col] = "=SUM(A1:A5)"
+let dependencies = {}; // Track dependencies: { 'row-col': ['dep-row-dep-col', ...] }
+
+// Filling state variables
+let isFilling = false;
+let fillStartCell = null;
+let fillRange = [];
 
 // Initialize the app
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM loaded, setting up event listeners');
     // Event listeners
-    document.getElementById('import-btn').addEventListener('click', () => fileInput.click());
+    document.getElementById('import-btn').addEventListener('click', () => {
+        console.log('Import button clicked');
+        fileInput.click();
+    });
     fileInput.addEventListener('change', handleFileSelect);
     document.getElementById('run-sql').addEventListener('click', runSQL);
     document.getElementById('export-csv').addEventListener('click', exportCSV);
@@ -65,12 +82,20 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('clear-data').addEventListener('click', clearData);
     document.getElementById('create-chart').addEventListener('click', createChart);
 
+    // Formula bar listeners
+    formulaBar.addEventListener('blur', updateCellFromFormulaBar);
+    formulaBar.addEventListener('keypress', function(event) {
+        if (event.key === 'Enter') {
+            updateCellFromFormulaBar();
+        }
+    });
+
     // Tab switching
     document.querySelectorAll('.tab-button').forEach(button => {
         button.addEventListener('click', function() {
+            console.log(`Tab clicked: ${this.dataset.tab}`);
             document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-            
             this.classList.add('active');
             document.getElementById(this.dataset.tab).classList.add('active');
         });
@@ -80,36 +105,611 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('#sample-files li').forEach(item => {
         item.addEventListener('click', function() {
             const fileKey = this.getAttribute('data-file');
+            console.log(`Sample file clicked: ${fileKey}`);
             loadSampleData(fileKey);
         });
     });
 
+    // Clear selections when clicking outside
+    document.addEventListener('click', function(event) {
+        if (!event.target.closest('#spreadsheet') && !event.target.closest('#formula-bar')) {
+            console.log('Clicked outside spreadsheet, clearing selections');
+            clearSelections();
+        }
+    });
+
     // Initialize with sample data
+    console.log('Loading initial sales data');
     loadSampleData('sales');
 });
 
+// Update cell from formula bar
+function updateCellFromFormulaBar() {
+    if (selectedCells.length !== 1) return;
+    const [row, col] = selectedCells[0].split('-').map(Number);
+    const value = formulaBar.value.trim();
+    console.log(`Updating cell (${row}, ${col}) from formula bar with: ${value}`);
+    updateCellValue(row, col, value);
+}
+
+// Update cell value and handle formulas
+function updateCellValue(row, col, value) {
+    const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
+    if (!cell) return;
+
+    // Store formula if applicable
+    if (value.startsWith('=')) {
+        formulas[row] = formulas[row] || [];
+        formulas[row][col] = value;
+    } else {
+        if (formulas[row]?.[col]) {
+            delete formulas[row][col];
+        }
+    }
+
+    // Evaluate and update data
+    currentData[row] = currentData[row] || [];
+    currentData[row][col] = evaluateFormula(value, row, col);
+    cell.textContent = currentData[row][col];
+
+    updateDependents(row, col);
+    updateSQLDatabase();
+    renderSpreadsheet();
+}
+
+// Parse cell reference (e.g., "A1" → { row: 0, col: 0 })
+function parseCellReference(ref) {
+    const match = ref.match(/^([A-Z]+)(\d+)$/);
+    if (!match) return null;
+
+    const colStr = match[1];
+    const rowStr = match[2];
+
+    let col = 0;
+    for (let i = 0; i < colStr.length; i++) {
+        col = col * 26 + (colStr.charCodeAt(i) - 64);
+    }
+    col--; // 0-based index
+
+    const row = parseInt(rowStr) - 1; // 0-based index
+    return { row, col };
+}
+
+// Convert row/col to cell reference (e.g., row 0, col 0 → "A1")
+function toCellReference(row, col) {
+    let colStr = '';
+    col++; // 1-based index for display
+    while (col > 0) {
+        colStr = String.fromCharCode(65 + ((col - 1) % 26)) + colStr;
+        col = Math.floor((col - 1) / 26);
+    }
+    return `${colStr}${row + 1}`;
+}
+
+// Parse range (e.g., "A1:A5" → [{ row: 0, col: 0 }, ..., { row: 4, col: 0 }])
+function parseRange(range) {
+    const [start, end] = range.split(':');
+    const startRef = parseCellReference(start);
+    const endRef = parseCellReference(end);
+    if (!startRef || !endRef) return [];
+
+    const cells = [];
+    for (let r = Math.min(startRef.row, endRef.row); r <= Math.max(startRef.row, endRef.row); r++) {
+        for (let c = Math.min(startRef.col, endRef.col); c <= Math.max(startRef.col, endRef.col); c++) {
+            cells.push({ row: r, col: c });
+        }
+    }
+    return cells;
+}
+
+// Evaluate condition without eval
+function evaluateCondition(condition, row, col) {
+    console.log(`Evaluating condition: ${condition} at (${row}, ${col})`);
+    const operators = ['>=', '<=', '!=', '=', '>', '<'];
+    let op = '';
+    let left = '';
+    let right = '';
+
+    // Find operator
+    for (let operator of operators) {
+        if (condition.includes(operator)) {
+            [left, right] = condition.split(operator);
+            op = operator;
+            break;
+        }
+    }
+
+    if (!op) return false;
+
+    // Resolve cell references in left part
+    left = left.trim();
+    const leftRef = parseCellReference(left);
+    if (leftRef) {
+        left = currentData[leftRef.row]?.[leftRef.col] || '0';
+    }
+
+    // Parse right part (number or string)
+    right = right.trim().replace(/"/g, '');
+    const rightNum = parseFloat(right);
+    const leftNum = parseFloat(left);
+
+    // Compare based on operator
+    switch (op) {
+        case '>': return leftNum > rightNum;
+        case '<': return leftNum < rightNum;
+        case '=': return left == right; // Loose equality for text
+        case '!=': return left != right;
+        case '>=': return leftNum >= rightNum;
+        case '<=': return leftNum <= rightNum;
+        default: return false;
+    }
+}
+
+// Sanitize condition for processing
+function sanitizeCondition(condition) {
+    // Replace operators
+    return condition
+        .replace(/=/g, '=')
+        .replace(/<>/g, '!=')
+        .replace(/([A-Z]+\d+)/g, match => {
+            const ref = parseCellReference(match);
+            if (!ref) return match;
+            return `"${currentData[ref.row]?.[ref.col] || '0'}"`;
+        });
+}
+
+// Evaluate formula
+function evaluateFormula(formula, row, col) {
+    if (!formula.startsWith('=')) return formula;
+
+    try {
+        let expr = formula.slice(1); // Remove '='
+        console.log(`Evaluating formula: ${expr} at (${row}, ${col})`);
+
+        // Track dependencies
+        const deps = [];
+        const dependencyKey = `${row}-${col}`;
+        const rangeValues = {}; // Store range values: { 'C2:C3': ['200', '75'] }
+
+        // Replace cell references and ranges
+        expr = expr.replace(/[A-Z]+\d+(?::[A-Z]+\d+)?/g, ref => {
+            if (ref.includes(':')) {
+                // Handle range
+                const values = parseRange(ref).map(cell => {
+                    if (currentData[cell.row]?.[cell.col] !== undefined) {
+                        deps.push(`${cell.row}-${cell.col}`);
+                        const value = currentData[cell.row][cell.col];
+                        return isNaN(parseFloat(value)) ? `"${value}"` : value.toString();
+                    }
+                    return '0';
+                });
+                rangeValues[ref] = values;
+                return ref; // Keep reference for function parsing
+            } else {
+                // Handle single cell
+                const cellRef = parseCellReference(ref);
+                if (!cellRef || cellRef.row < 0 || cellRef.col < 0) throw new Error('#REF!');
+                deps.push(`${cellRef.row}-${cellRef.col}`);
+                const value = currentData[cellRef.row]?.[cellRef.col] || '0';
+                return isNaN(parseFloat(value)) ? `"${value}"` : value.toString();
+            }
+        });
+
+        // Update dependencies
+        dependencies[dependencyKey] = deps;
+
+        // Define functions
+        const functions = {
+            SUM: args => {
+                const flatArgs = args.flatMap(arg => rangeValues[arg] || [arg]);
+                return flatArgs.reduce((sum, val) => sum + (parseFloat(val) || 0), 0);
+            },
+            AVERAGE: args => {
+                const flatArgs = args.flatMap(arg => rangeValues[arg] || [arg]);
+                return functions.SUM(flatArgs) / (flatArgs.length || 1);
+            },
+            MIN: args => {
+                const flatArgs = args.flatMap(arg => rangeValues[arg] || [arg]);
+                return Math.min(...flatArgs.map(val => parseFloat(val) || Infinity));
+            },
+            MAX: args => {
+                const flatArgs = args.flatMap(arg => rangeValues[arg] || [arg]);
+                return Math.max(...flatArgs.map(val => parseFloat(val) || -Infinity));
+            },
+            COUNT: args => {
+                const flatArgs = args.flatMap(arg => rangeValues[arg] || [arg]);
+                return flatArgs.filter(val => !isNaN(parseFloat(val)) && val !== '').length;
+            },
+            AVERAGEIF: args => {
+                const [range, criterion, avgRange] = args;
+                const rangeCells = parseRange(range);
+                const values = rangeCells.map(cell => currentData[cell.row]?.[cell.col] || '0');
+                const avgCells = avgRange ? parseRange(avgRange) : rangeCells;
+                const avgValues = avgCells.map(cell => parseFloat(currentData[cell.row]?.[cell.col]) || 0);
+                let sum = 0, count = 0;
+
+                for (let i = 0; i < values.length; i++) {
+                    if (evaluateCondition(criterion.replace(/"/g, ''), row, col)) {
+                        sum += avgValues[i] || 0;
+                        count++;
+                    }
+                }
+                return count > 0 ? sum / count : '#DIV/0!';
+            },
+            AVERAGEIFS: args => {
+                const [avgRange, ...criteriaPairs] = args;
+                if (criteriaPairs.length % 2 !== 0) throw new Error('#VALUE!');
+                const avgCells = parseRange(avgRange);
+                const avgValues = avgCells.map(cell => parseFloat(currentData[cell.row]?.[cell.col]) || 0);
+                let sum = 0, count = 0;
+
+                for (let i = 0; i < avgCells.length; i++) {
+                    let meetsCriteria = true;
+                    for (let j = 0; j < criteriaPairs.length; j += 2) {
+                        const critRange = parseRange(criteriaPairs[j]);
+                        const criterion = criteriaPairs[j + 1];
+                        const value = currentData[critRange[i].row]?.[critRange[i].col] || '0';
+                        if (!evaluateCondition(criterion.replace(/"/g, ''), row, col)) {
+                            meetsCriteria = false;
+                            break;
+                        }
+                    }
+                    if (meetsCriteria) {
+                        sum += avgValues[i];
+                        count++;
+                    }
+                }
+                return count > 0 ? sum / count : '#DIV/0!';
+            },
+            COUNTA: args => {
+                const flatArgs = args.flatMap(arg => rangeValues[arg] || [arg]);
+                return flatArgs.filter(val => val !== '' && val !== '0').length;
+            },
+            COUNTBLANK: args => {
+                const flatArgs = args.flatMap(arg => rangeValues[arg] || [arg]);
+                return flatArgs.filter(val => val === '' || val === '0').length;
+            },
+            COUNTIF: args => {
+                const [range, criterion] = args;
+                const rangeCells = parseRange(range);
+                const values = rangeCells.map(cell => currentData[cell.row]?.[cell.col] || '0');
+                return values.filter(val => evaluateCondition(criterion.replace(/"/g, ''), row, col)).length;
+            },
+            COUNTIFS: args => {
+                if (args.length % 2 !== 0) throw new Error('#VALUE!');
+                const ranges = args.filter((_, i) => i % 2 === 0).map(range => parseRange(range));
+                const criteria = args.filter((_, i) => i % 2 === 1);
+                if (!ranges.every(r => r.length === ranges[0].length)) throw new Error('#VALUE!');
+
+                let count = 0;
+                for (let i = 0; i < ranges[0].length; i++) {
+                    let meetsCriteria = true;
+                    for (let j = 0; j < ranges.length; j++) {
+                        const value = currentData[ranges[j][i].row]?.[ranges[j][i].col] || '0';
+                        if (!evaluateCondition(criteria[j].replace(/"/g, ''), row, col)) {
+                            meetsCriteria = false;
+                            break;
+                        }
+                    }
+                    if (meetsCriteria) count++;
+                }
+                return count;
+            },
+            SUMIF: args => {
+                const [range, criterion, sumRange] = args;
+                const rangeCells = parseRange(range);
+                const values = rangeCells.map(cell => currentData[cell.row]?.[cell.col] || '0');
+                const sumCells = sumRange ? parseRange(sumRange) : rangeCells;
+                const sumValues = sumCells.map(cell => parseFloat(currentData[cell.row]?.[cell.col]) || 0);
+                let sum = 0;
+
+                for (let i = 0; i < values.length; i++) {
+                    if (evaluateCondition(criterion.replace(/"/g, ''), row, col)) {
+                        sum += sumValues[i] || 0;
+                    }
+                }
+                return sum;
+            },
+            SUMIFS: args => {
+                const [sumRange, ...criteriaPairs] = args;
+                if (criteriaPairs.length % 2 !== 0) throw new Error('#VALUE!');
+                const sumCells = parseRange(sumRange);
+                const sumValues = sumCells.map(cell => parseFloat(currentData[cell.row]?.[cell.col]) || 0);
+                let sum = 0;
+
+                for (let i = 0; i < sumCells.length; i++) {
+                    let meetsCriteria = true;
+                    for (let j = 0; j < criteriaPairs.length; j += 2) {
+                        const critRange = parseRange(criteriaPairs[j]);
+                        const criterion = criteriaPairs[j + 1];
+                        const value = currentData[critRange[i].row]?.[critRange[i].col] || '0';
+                        if (!evaluateCondition(criterion.replace(/"/g, ''), row, col)) {
+                            meetsCriteria = false;
+                            break;
+                        }
+                    }
+                    if (meetsCriteria) {
+                        sum += sumValues[i];
+                    }
+                }
+                return sum;
+            },
+            MEDIAN: args => {
+                const flatArgs = args.flatMap(arg => rangeValues[arg] || [arg]);
+                const numbers = flatArgs.map(val => parseFloat(val)).filter(val => !isNaN(val));
+                if (numbers.length === 0) return '#NUM!';
+                numbers.sort((a, b) => a - b);
+                const mid = Math.floor(numbers.length / 2);
+                return numbers.length % 2 === 0 ? (numbers[mid - 1] + numbers[mid]) / 2 : numbers[mid];
+            },
+            MODE: args => {
+                const flatArgs = args.flatMap(arg => rangeValues[arg] || [arg]);
+                const numbers = flatArgs.map(val => parseFloat(val)).filter(val => !isNaN(val));
+                if (numbers.length === 0) return '#NUM!';
+                const frequency = {};
+                let maxFreq = 0;
+                let mode = null;
+                numbers.forEach(num => {
+                    frequency[num] = (frequency[num] || 0) + 1;
+                    if (frequency[num] > maxFreq) {
+                        maxFreq = frequency[num];
+                        mode = num;
+                    }
+                });
+                return mode !== null ? mode : '#N/A';
+            },
+            STDEV_P: args => {
+                const flatArgs = args.flatMap(arg => rangeValues[arg] || [arg]);
+                const numbers = flatArgs.map(val => parseFloat(val)).filter(val => !isNaN(val));
+                if (numbers.length === 0) return '#NUM!';
+                const mean = numbers.reduce((sum, val) => sum + val, 0) / numbers.length;
+                const variance = numbers.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / numbers.length;
+                return Math.sqrt(variance);
+            },
+            STDEV_S: args => {
+                const flatArgs = args.flatMap(arg => rangeValues[arg] || [arg]);
+                const numbers = flatArgs.map(val => parseFloat(val)).filter(val => !isNaN(val));
+                if (numbers.length <= 1) return '#DIV/0!';
+                const mean = numbers.reduce((sum, val) => sum + val, 0) / numbers.length;
+                const variance = numbers.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / (numbers.length - 1);
+                return Math.sqrt(variance);
+            },
+            NPV: args => {
+                const [rate, ...values] = args;
+                const rateVal = parseFloat(rate);
+                if (isNaN(rateVal)) throw new Error('#VALUE!');
+                const flatValues = values.flatMap(arg => rangeValues[arg] || [arg]).map(val => parseFloat(val)).filter(val => !isNaN(val));
+                return flatValues.reduce((npv, val, i) => npv + val / Math.pow(1 + rateVal, i + 1), 0);
+            },
+            RAND: () => Math.random(),
+            AND: args => {
+                console.log(`AND args: ${JSON.stringify(args)}`);
+                return args.every(arg => {
+                    const cond = sanitizeCondition(arg);
+                    return evaluateCondition(cond, row, col);
+                }) ? 'TRUE' : 'FALSE';
+            },
+            OR: args => {
+                console.log(`OR args: ${JSON.stringify(args)}`);
+                return args.some(arg => {
+                    const cond = sanitizeCondition(arg);
+                    return evaluateCondition(cond, row, col);
+                }) ? 'TRUE' : 'FALSE';
+            },
+            XOR: args => {
+                console.log(`XOR args: ${JSON.stringify(args)}`);
+                const trueCount = args.filter(arg => {
+                    const cond = sanitizeCondition(arg);
+                    return evaluateCondition(cond, row, col);
+                }).length;
+                return (trueCount % 2 === 1) ? 'TRUE' : 'FALSE';
+            },
+            IF: args => {
+                if (args.length !== 3) throw new Error('#VALUE!');
+                console.log(`IF args: ${JSON.stringify(args)}`);
+                const [condition, trueVal, falseVal] = args;
+                const cond = sanitizeCondition(condition);
+                return evaluateCondition(cond, row, col) ? trueVal.replace(/"/g, '') : falseVal.replace(/"/g, '');
+            },
+            IFS: args => {
+                if (args.length % 2 !== 0) throw new Error('#VALUE!');
+                console.log(`IFS args: ${JSON.stringify(args)}`);
+                for (let i = 0; i < args.length; i += 2) {
+                    const condition = sanitizeCondition(args[i]);
+                    if (evaluateCondition(condition, row, col)) {
+                        return args[i + 1].replace(/"/g, '');
+                    }
+                }
+                return '#N/A';
+            },
+            CONCAT: args => {
+                console.log(`CONCAT args: ${JSON.stringify(args)}`);
+                return args.map(arg => arg.replace(/"/g, '')).join('');
+            },
+            LEFT: args => {
+                if (args.length < 1 || args.length > 2) throw new Error('#VALUE!');
+                console.log(`LEFT args: ${JSON.stringify(args)}`);
+                const [text, numChars] = args;
+                const n = parseInt(numChars) || 1;
+                if (n < 0) return '';
+                return text.replace(/"/g, '').slice(0, n);
+            },
+            RIGHT: args => {
+                if (args.length < 1 || args.length > 2) throw new Error('#VALUE!');
+                console.log(`RIGHT args: ${JSON.stringify(args)}`);
+                const [text, numChars] = args;
+                const n = parseInt(numChars) || 1;
+                if (n < 0) return '';
+                return text.replace(/"/g, '').slice(-n);
+            },
+            LOWER: args => {
+                if (args.length !== 1) throw new Error('#VALUE!');
+                console.log(`LOWER args: ${JSON.stringify(args)}`);
+                return args[0].replace(/"/g, '').toLowerCase();
+            },
+            TRIM: args => {
+                if (args.length !== 1) throw new Error('#VALUE!');
+                console.log(`TRIM raw arg: ${args[0]}`);
+                let text = args[0];
+                // Handle quoted strings by removing outer quotes and unescaping inner quotes
+                if (text.startsWith('"') && text.endsWith('"')) {
+                    text = text.slice(1, -1).replace(/""/g, '"');
+                }
+                console.log(`TRIM processed text: ${text}`);
+                return text.trim().replace(/\s+/g, ' ');
+            }
+        };
+
+        // Map function names with dots to internal names
+        const functionMap = {
+            'STDEV.P': 'STDEV_P',
+            'STDEV.S': 'STDEV_S'
+        };
+
+        // Parse function calls with support for quotes and conditions
+        const parseFunctionCalls = (expression) => {
+            const match = expression.match(/(\w+(\.\w+)?)\((.*)\)$/i); // Support function names with dots
+            if (!match) throw new Error('#SYNTAX!');
+            let funcName = match[1].toUpperCase();
+            console.log(`Parsing function: ${funcName}`);
+            // Map function names with dots
+            funcName = functionMap[funcName] || funcName;
+            if (!functions[funcName]) throw new Error('#NAME?');
+            let argStr = match[3].trim();
+            if (!argStr) return { result: functions[funcName]([]), rest: '' };
+
+            const args = [];
+            let currentArg = '';
+            let inQuotes = false;
+            let depth = 0;
+
+            for (let i = 0; i < argStr.length; i++) {
+                const char = argStr[i];
+                if (char === '"' && argStr[i - 1] !== '\\') {
+                    inQuotes = !inQuotes;
+                    currentArg += char;
+                } else if (char === '(' && !inQuotes) {
+                    depth++;
+                    currentArg += char;
+                } else if (char === ')' && !inQuotes) {
+                    depth--;
+                    if (depth < 0) {
+                        if (currentArg.trim()) args.push(currentArg.trim());
+                        console.log(`Parsed ${funcName} args: ${JSON.stringify(args)}`);
+                        return { result: functions[funcName](args), rest: argStr.slice(i + 1) };
+                    }
+                    currentArg += char;
+                } else if (char === ',' && !inQuotes && depth === 0) {
+                    if (currentArg.trim()) args.push(currentArg.trim());
+                    currentArg = '';
+                } else {
+                    currentArg += char;
+                }
+            }
+            if (currentArg.trim()) args.push(currentArg.trim());
+
+            console.log(`Parsed ${funcName} args: ${JSON.stringify(args)}`);
+            return { result: functions[funcName](args), rest: '' };
+        };
+
+        // Replace function calls
+        while (expr.match(/(\w+(\.\w+)?)\([^)]+\)/i)) {
+            const match = expr.match(/(\w+(\.\w+)?)\([^)]+\)/i);
+            const funcExpr = match[0];
+            const { result } = parseFunctionCalls(funcExpr);
+            expr = expr.replace(funcExpr, result);
+        }
+
+        return expr;
+    } catch (error) {
+        console.error(`Formula error at (${row}, ${col}): ${error.message}`);
+        return error.message.startsWith('#') ? error.message : '#ERROR!';
+    }
+}
+
+// Update dependent cells
+function updateDependents(row, col) {
+    const key = `${row}-${col}`;
+    for (let depKey in dependencies) {
+        if (dependencies[depKey].includes(key)) {
+            const [depRow, depCol] = depKey.split('-').map(Number);
+            if (formulas[depRow]?.[depCol]) {
+                currentData[depRow][depCol] = evaluateFormula(formulas[depRow][depCol], depRow, depCol);
+                const cell = document.querySelector(`td[data-row="${depRow}"][data-column="${depCol}"]`);
+                if (cell) cell.textContent = currentData[depRow][depCol];
+                updateDependents(depRow, depCol); // Recursively update
+            }
+        }
+    }
+}
+
+// Adjust formula references for filling
+function adjustFormula(formula, srcRow, srcCol, destRow, destCol) {
+    if (!formula.startsWith('=')) return formula;
+
+    let adjusted = formula;
+    const refRegex = /[A-Z]+\d+(?::[A-Z]+\d+)?/g;
+    const matches = formula.match(refRegex) || [];
+
+    for (let ref of matches) {
+        if (ref.includes(':')) {
+            // Handle range (e.g., A1:A5)
+            const [start, end] = ref.split(':');
+            const startRef = parseCellReference(start);
+            const endRef = parseCellReference(end);
+            if (!startRef || !endRef) continue;
+
+            const rowDelta = destRow - srcRow;
+            const colDelta = destCol - srcCol;
+
+            const newStart = toCellReference(startRef.row + rowDelta, startRef.col + colDelta);
+            const newEnd = toCellReference(endRef.row + rowDelta, endRef.col + colDelta);
+            const newRange = `${newStart}:${newEnd}`;
+
+            adjusted = adjusted.replace(ref, newRange);
+        } else {
+            // Handle single cell
+            const cellRef = parseCellReference(ref);
+            if (!cellRef) continue;
+
+            const rowDelta = destRow - srcRow;
+            const colDelta = destCol - srcCol;
+            const newRef = toCellReference(cellRef.row + rowDelta, cellRef.col + colDelta);
+
+            adjusted = adjusted.replace(ref, newRef);
+        }
+    }
+
+    return adjusted;
+}
+
 // Load sample data
 function loadSampleData(key) {
+    console.log(`Loading sample data: ${key}`);
     const csvData = sampleData[key];
     if (csvData) {
         processCSVData(csvData);
+    } else {
+        alert('No sample data found for key: ' + key);
     }
 }
 
 // Handle file selection
 function handleFileSelect(event) {
+    console.log('File selected:', event.target.files[0]?.name);
     const file = event.target.files[0];
     if (!file) return;
 
+    loading.style.display = 'block';
     const reader = new FileReader();
     reader.onload = function(e) {
         const data = e.target.result;
-        
         if (file.name.endsWith('.csv')) {
             processCSVData(data);
         } else if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
             processExcelData(data);
         }
+        loading.style.display = 'none';
     };
     
     if (file.name.endsWith('.csv')) {
@@ -121,118 +721,634 @@ function handleFileSelect(event) {
 
 // Process CSV data
 function processCSVData(csvString) {
-    const rows = csvString.split('\n').filter(row => row.trim() !== '');
-    const data = rows.map(row => {
-        // Simple CSV parsing (for more robust parsing, use a library)
-        return row.split(',').map(cell => cell.trim());
-    });
-    
-    if (data.length === 0) return;
-    
-    headers = data[0];
-    currentData = data.slice(1);
-    
-    renderSpreadsheet();
-    updateSQLDatabase();
-    updateChartDropdowns();
+    console.log('Processing CSV data');
+    try {
+        const workbook = XLSX.read(csvString, { type: 'string' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+        
+        if (data.length === 0) {
+            console.warn('No data in CSV');
+            alert('No data found in the file');
+            return;
+        }
+        
+        headers = data[0] || [];
+        currentData = data.slice(1) || [];
+        formulas = [];
+        dependencies = {};
+        
+        renderSpreadsheet();
+        updateSQLDatabase();
+        updateChartDropdowns();
+    } catch (error) {
+        console.error('Error processing CSV:', error);
+        alert('Error processing CSV file');
+    }
 }
 
 // Process Excel data
 function processExcelData(arrayBuffer) {
-    const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-    const data = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
-    
-    if (data.length === 0) return;
-    
-    headers = data[0];
-    currentData = data.slice(1);
-    
-    renderSpreadsheet();
-    updateSQLDatabase();
-    updateChartDropdowns();
+    console.log('Processing Excel data');
+    try {
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+        
+        if (data.length === 0) {
+            console.warn('No data in Excel');
+            alert('No data found in the file');
+            return;
+        }
+        
+        headers = data[0] || [];
+        currentData = data.slice(1) || [];
+        formulas = [];
+        dependencies = {};
+        
+        renderSpreadsheet();
+        updateSQLDatabase();
+        updateChartDropdowns();
+    } catch (error) {
+        console.error('Error processing Excel:', error);
+        alert('Error processing Excel file');
+    }
 }
 
 // Render spreadsheet
 function renderSpreadsheet() {
-    // Clear existing data
-    headerRow.innerHTML = '';
+    console.log('Rendering spreadsheet');
+    headerRow.innerHTML = '<th class="row-number-header"></th>';
     dataBody.innerHTML = '';
+    clearSelections();
     
-    // Add headers
     headers.forEach((header, index) => {
         const th = document.createElement('th');
         th.textContent = header;
         th.contentEditable = true;
+        th.dataset.column = index;
+        th.addEventListener('click', function(event) {
+            console.log(`Column header clicked: ${index}`);
+            event.stopPropagation();
+            handleColumnSelection(event);
+        });
         th.addEventListener('blur', () => {
-            headers[index] = th.textContent;
+            headers[index] = th.textContent.trim() || `Column${index + 1}`; // Prevent empty headers
+            console.log(`Header updated: ${headers[index]}`);
             updateSQLDatabase();
             updateChartDropdowns();
         });
         headerRow.appendChild(th);
     });
     
-    // Add data rows
     currentData.forEach((row, rowIndex) => {
         const tr = document.createElement('tr');
         
+        const rowNumberTd = document.createElement('td');
+        rowNumberTd.className = 'row-number';
+        rowNumberTd.textContent = rowIndex + 1;
+        rowNumberTd.dataset.row = rowIndex;
+        rowNumberTd.addEventListener('click', function(event) {
+            console.log(`Row number clicked: ${rowIndex}`);
+            event.stopPropagation();
+            handleRowSelection(event);
+        });
+        tr.appendChild(rowNumberTd);
+        
         row.forEach((cell, colIndex) => {
             const td = document.createElement('td');
-            td.textContent = cell;
+            td.textContent = cell || '';
             td.contentEditable = true;
+            td.dataset.row = rowIndex;
+            td.dataset.column = colIndex;
+            td.addEventListener('click', function(event) {
+                console.log(`Cell clicked: row ${rowIndex}, col ${colIndex}`);
+                event.stopPropagation();
+                handleCellSelection(event);
+                formulaBar.value = formulas[rowIndex]?.[colIndex] || td.textContent;
+            });
             td.addEventListener('blur', () => {
-                currentData[rowIndex][colIndex] = td.textContent;
-                updateSQLDatabase();
+                const value = td.textContent.trim();
+                console.log(`Cell updated: row ${rowIndex}, col ${colIndex}, value ${value}`);
+                updateCellValue(rowIndex, colIndex, value);
             });
             tr.appendChild(td);
         });
         
-        // Add empty cells if row is shorter than headers
-        while (tr.children.length < headers.length) {
+        while (tr.children.length - 1 < headers.length) {
             const td = document.createElement('td');
             td.contentEditable = true;
+            td.dataset.row = rowIndex;
+            td.dataset.column = tr.children.length - 1;
+            td.addEventListener('click', function(event) {
+                console.log(`Empty cell clicked: row ${rowIndex}, col ${tr.children.length - 1}`);
+                event.stopPropagation();
+                handleCellSelection(event);
+                formulaBar.value = '';
+            });
             td.addEventListener('blur', () => {
+                const value = td.textContent.trim();
                 if (!currentData[rowIndex]) currentData[rowIndex] = [];
-                currentData[rowIndex][tr.children.length - 1] = td.textContent;
-                updateSQLDatabase();
+                console.log(`Empty cell updated: row ${rowIndex}, col ${tr.children.length - 1}`);
+                updateCellValue(rowIndex, tr.children.length - 1, value);
             });
             tr.appendChild(td);
         }
         
         dataBody.appendChild(tr);
     });
+    
+    // Add fill handle to selected cell
+    updateFillHandle();
+    console.log('Spreadsheet rendered, headers:', headers, 'data:', currentData);
 }
 
+// Update fill handle visibility
+function updateFillHandle() {
+    // Remove existing fill handles
+    document.querySelectorAll('.fill-handle').forEach(handle => handle.remove());
+    
+    // Add fill handle if a single cell is selected
+    if (selectedCells.length === 1) {
+        const [row, col] = selectedCells[0].split('-').map(Number);
+        const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
+        if (cell) {
+            const handle = document.createElement('div');
+            handle.className = 'fill-handle';
+            handle.addEventListener('mousedown', startFillDrag);
+            handle.addEventListener('dblclick', handleDoubleClickFill);
+            cell.appendChild(handle);
+            console.log('Fill handle added to cell:', row, col);
+        }
+    }
+}
+
+// Handle double-click fill
+function handleDoubleClickFill(event) {
+    event.stopPropagation();
+    const [row, col] = selectedCells[0].split('-').map(Number);
+    console.log('Double-click fill started from cell:', row, col);
+    
+    // Determine the last row to fill based on the left adjacent column
+    let endRow = row;
+    const adjacentCol = col - 1;
+    
+    if (adjacentCol >= 0) {
+        // Check left column for non-empty cells
+        while (endRow + 1 < currentData.length && currentData[endRow + 1][adjacentCol] !== undefined && currentData[endRow + 1][adjacentCol] !== '') {
+            endRow++;
+        }
+    } else {
+        // If no left column (e.g., col 0), fill to the last row of the dataset
+        endRow = currentData.length - 1;
+    }
+    
+    // Ensure at least one cell is filled
+    if (endRow === row) {
+        endRow = row + 1;
+    }
+    
+    // Clear any previous fill range highlights
+    document.querySelectorAll('.fill-range').forEach(cell => cell.classList.remove('fill-range'));
+    
+    // Set fill range and highlight
+    fillStartCell = [row, col];
+    fillRange = getFillRange(row, col, endRow, col);
+    
+    fillRange.forEach(([r, c]) => {
+        const cell = document.querySelector(`td[data-row="${r}"][data-column="${c}"]`);
+        if (cell && !cell.classList.contains('row-number')) {
+            cell.classList.add('fill-range');
+        }
+    });
+    
+    // Apply fill
+    applyFill();
+    
+    // Clear highlights after a short delay for visual feedback
+    setTimeout(() => {
+        document.querySelectorAll('.fill-range').forEach(cell => cell.classList.remove('fill-range'));
+    }, 500);
+    
+    console.log('Double-click fill applied to rows:', row, 'to', endRow, 'range:', fillRange);
+}
+
+// Start fill drag
+function startFillDrag(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    isFilling = true;
+    fillStartCell = selectedCells[0].split('-').map(Number);
+    fillRange = [];
+    console.log('Fill drag started from cell:', fillStartCell);
+    
+    document.addEventListener('mousemove', handleFillDrag);
+    document.addEventListener('mouseup', endFillDrag, { once: true });
+}
+
+// Handle fill drag
+function handleFillDrag(event) {
+    if (!isFilling) return;
+    
+    const target = event.target.closest('td[data-row][data-column]');
+    if (!target || target.classList.contains('row-number')) return;
+    
+    const endRow = parseInt(target.dataset.row);
+    const endCol = parseInt(target.dataset.column);
+    
+    // Clear previous fill range highlights
+    document.querySelectorAll('.fill-range').forEach(cell => cell.classList.remove('fill-range'));
+    
+    // Calculate fill range
+    fillRange = getFillRange(fillStartCell[0], fillStartCell[1], endRow, endCol);
+    
+    // Highlight fill range
+    fillRange.forEach(([row, col]) => {
+        const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
+        if (cell && !cell.classList.contains('row-number')) {
+            cell.classList.add('fill-range');
+        }
+    });
+    
+    console.log('Fill range updated:', fillRange);
+}
+
+// End fill drag
+function endFillDrag(event) {
+    if (!isFilling) return;
+    isFilling = false;
+    
+    document.removeEventListener('mousemove', handleFillDrag);
+    
+    // Clear fill range highlights
+    document.querySelectorAll('.fill-range').forEach(cell => cell.classList.remove('fill-range'));
+    
+    if (fillRange.length > 0) {
+        applyFill();
+    }
+    
+    console.log('Fill drag ended, range:', fillRange);
+}
+
+// Get fill range coordinates
+function getFillRange(startRow, startCol, endRow, endCol) {
+    const range = [];
+    const minRow = Math.min(startRow, endRow);
+    const maxRow = Math.max(startRow, endRow);
+    const minCol = Math.min(startCol, endCol);
+    const maxCol = Math.max(startCol, endCol);
+    
+    // Support vertical or horizontal filling
+    if (startRow === endRow) {
+        // Horizontal fill
+        for (let col = minCol; col <= maxCol; col++) {
+            range.push([startRow, col]);
+        }
+    } else if (startCol === endCol) {
+        // Vertical fill
+        for (let row = minRow; row <= maxRow; row++) {
+            range.push([row, startCol]);
+        }
+    }
+    
+    return range;
+}
+
+
+function applyFill() {
+    if (!fillStartCell || fillRange.length === 0) return;
+    
+    const [startRow, startCol] = fillStartCell;
+    const cell = document.querySelector(`td[data-row="${startRow}"][data-column="${startCol}"]`);
+    if (!cell) return;
+    
+    const value = formulas[startRow]?.[startCol] || cell.textContent.trim();
+    console.log('Applying fill for value:', value, 'from cell:', startRow, startCol);
+    
+    let pattern = detectPattern(value);
+    
+    fillRange.forEach(([row, col], index) => {
+        if (row === startRow && col === startCol) return; // Skip starting cell
+        const targetCell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
+        if (targetCell) {
+            let newValue;
+            if (value.startsWith('=')) {
+                // Fill formula
+                newValue = adjustFormula(value, startRow, startCol, row, col);
+                formulas[row] = formulas[row] || [];
+                formulas[row][col] = newValue;
+                newValue = evaluateFormula(newValue, row, col);
+                console.log(`Filled formula at (${row}, ${col}) with index ${index}: ${newValue}`);
+            } else {
+                // Fill non-formula
+                newValue = getNextValue(value, pattern, index); // Use index as the step offset
+                if (formulas[row]?.[col]) {
+                    delete formulas[row][col];
+                }
+                console.log(`Filled value at (${row}, ${col}) with index ${index}: ${newValue}`);
+            }
+            
+            targetCell.textContent = newValue;
+            currentData[row] = currentData[row] || [];
+            currentData[row][col] = newValue;
+            updateDependents(row, col);
+        }
+    });
+    
+    updateSQLDatabase();
+    renderSpreadsheet();
+}
+
+// Detect pattern in cell value
+function detectPattern(value) {
+    console.log('Detecting pattern for value:', value);
+    // Date pattern (e.g., 5.6.2025 or 25.06.2025)
+    const dateMatch = value.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/); // DD.MM.YYYY
+    if (dateMatch) {
+        const [_, day, month, year] = dateMatch;
+        const paddedDay = day.padStart(2, '0');
+        const paddedMonth = month.padStart(2, '0');
+        const date = new Date(`${year}-${paddedMonth}-${paddedDay}`);
+        if (!isNaN(date.getTime())) {
+            console.log('Detected date pattern, parsed components:', { day: paddedDay, month: paddedMonth, year }, 'resulting date:', date.toLocaleString());
+            return { type: 'date', base: date, inputFormat: { day: day.length === 1, month: month.length === 1 } };
+        } else {
+            console.log('Invalid date after parsing:', value);
+        }
+    }
+
+    // Text + number sequence pattern (e.g., Hello 1, Hello 2)
+    const textNumberMatch = value.match(/^(.+?)(\d+)$/);
+    if (textNumberMatch) {
+        return { type: 'text-number', prefix: textNumberMatch[1], number: parseInt(textNumberMatch[2]) };
+    }
+
+    // Numeric sequence (e.g., 1, 2, 3 or 10, 20, 30)
+    const num = parseFloat(value);
+    if (!isNaN(num)) {
+        // Check adjacent cells for sequence (simplistic detection)
+        const prevRow = startRow > 0 ? currentData[startRow - 1]?.[startCol] : null;
+        const nextRow = startRow < currentData.length - 1 ? currentData[startRow + 1]?.[startCol] : null;
+        const prevCol = startCol > 0 ? currentData[startRow]?.[startCol - 1] : null;
+        const nextCol = startCol < headers.length - 1 ? currentData[startRow]?.[startCol + 1] : null;
+
+        const neighbors = [prevRow, nextRow, prevCol, nextCol].filter(v => v !== null && !isNaN(parseFloat(v)));
+        if (neighbors.length > 0) {
+            const diffs = neighbors.map(v => parseFloat(v) - num);
+            const avgDiff = diffs.reduce((a, b) => a + b, 0) / diffs.length;
+            if (Math.abs(avgDiff) > 0 && Math.abs(avgDiff) < 100) { // Arbitrary threshold
+                console.log('Detected numeric sequence with step:', avgDiff);
+                return { type: 'number', base: num, step: avgDiff };
+            }
+        }
+        console.log('Detected simple number:', num);
+        return { type: 'number', base: num, step: 1 };
+    }
+
+    // Default: treat as text (no increment)
+    console.log('Detected text pattern:', value);
+    return { type: 'text', base: value };
+}
+
+// Get next value based on pattern
+function getNextValue(original, pattern, step) {
+    console.log('Getting next value for pattern:', pattern, 'step:', step);
+    switch (pattern.type) {
+        case 'date':
+            const nextDate = new Date(pattern.base);
+            nextDate.setDate(nextDate.getDate() + step); // Increment by days
+            console.log('Next date calculated:', nextDate.toLocaleString());
+            const day = pattern.inputFormat.day ? nextDate.getDate() : String(nextDate.getDate()).padStart(2, '0');
+            const month = pattern.inputFormat.month ? nextDate.getMonth() + 1 : String(nextDate.getMonth() + 1).padStart(2, '0'); // Month is 0-based
+            const year = nextDate.getFullYear();
+            return `${day}.${month}.${year}`; // Match input format
+        case 'text-number':
+            return `${pattern.prefix}${pattern.number + step}`;
+        case 'number':
+            return (pattern.base + (pattern.step || 1) * step).toString();
+        case 'text':
+            return pattern.base; // No change for pure text
+        default:
+            return original;
+    }
+}
+
+// Adjust formula references for filling
+function adjustFormula(formula, srcRow, srcCol, destRow, destCol) {
+    console.log(`Adjusting formula "${formula}" from (${srcRow}, ${srcCol}) to (${destRow}, ${destCol})`);
+    if (!formula.startsWith('=')) return formula;
+
+    let adjusted = formula;
+    const refRegex = /[A-Z]+\d+(?::[A-Z]+\d+)?/g;
+    const matches = formula.match(refRegex) || [];
+
+    for (let ref of matches) {
+        if (ref.includes(':')) {
+            // Handle range (e.g., A1:A5)
+            const [start, end] = ref.split(':');
+            const startRef = parseCellReference(start);
+            const endRef = parseCellReference(end);
+            if (!startRef || !endRef) continue;
+
+            const rowDelta = destRow - srcRow;
+            const colDelta = destCol - srcCol;
+
+            const newStart = toCellReference(startRef.row + rowDelta, startRef.col + colDelta);
+            const newEnd = toCellReference(endRef.row + rowDelta, endRef.col + colDelta);
+            const newRange = `${newStart}:${newEnd}`;
+            console.log(`Adjusted range ${ref} to ${newRange}`);
+            adjusted = adjusted.replace(ref, newRange);
+        } else {
+            // Handle single cell
+            const cellRef = parseCellReference(ref);
+            if (!cellRef) continue;
+
+            const rowDelta = destRow - srcRow;
+            const colDelta = destCol - srcCol;
+            const newRef = toCellReference(cellRef.row + rowDelta, cellRef.col + colDelta);
+            console.log(`Adjusted cell ${ref} to ${newRef}`);
+            adjusted = adjusted.replace(ref, newRef);
+        }
+    }
+
+    return adjusted;
+}
+
+// [Remaining code remains unchanged]
+
+// Selection handlers
+// Selection handlers
+function handleCellSelection(event) {
+    const td = event.target;
+    const rowIndex = parseInt(td.dataset.row);
+    const colIndex = parseInt(td.dataset.column);
+
+    console.log('Cell clicked:', { rowIndex, colIndex, ctrlKey: event.ctrlKey, metaKey: event.metaKey });
+
+    if (isNaN(rowIndex) || isNaN(colIndex)) {
+        console.error('Invalid cell indices:', td.dataset);
+        return;
+    }
+
+    const cellKey = `${rowIndex}-${colIndex}`;
+    event.stopPropagation(); // Prevent event bubbling to parent elements
+
+    if (event.ctrlKey || event.metaKey) {
+        // Multi-select: Toggle selection
+        const index = selectedCells.indexOf(cellKey);
+        if (index === -1) {
+            selectedCells.push(cellKey);
+            td.classList.add('selected-cell');
+            console.log('Added cell to selection:', cellKey, 'Selected cells:', selectedCells);
+        } else {
+            selectedCells.splice(index, 1);
+            td.classList.remove('selected-cell');
+            console.log('Removed cell from selection:', cellKey, 'Selected cells:', selectedCells);
+        }
+    } else {
+        // Single select: Clear all and select only this cell
+        clearSelections();
+        selectedCells = [cellKey];
+        td.classList.add('selected-cell');
+        formulaBar.value = formulas[rowIndex]?.[colIndex] || td.textContent || '';
+        console.log('Selected single cell:', cellKey);
+    }
+
+    // Ensure mutual exclusivity with row/column selection
+    if (selectedRow !== null || selectedColumn !== null) {
+        clearSelections();
+        selectedCells = [cellKey];
+        td.classList.add('selected-cell');
+        console.log('Cleared row/column selection, selected cell:', cellKey);
+    }
+
+    updateFillHandle();
+}
+
+function handleRowSelection(event) {
+    const rowNumberTd = event.target;
+    const rowIndex = parseInt(rowNumberTd.dataset.row);
+
+    console.log('Row clicked:', { rowIndex });
+
+    if (isNaN(rowIndex)) {
+        console.error('Invalid row index:', rowNumberTd.dataset);
+        return;
+    }
+
+    clearSelections();
+    selectedRow = rowIndex;
+    const row = dataBody.children[rowIndex];
+    if (row) {
+        row.classList.add('selected-row');
+        console.log('Selected row:', rowIndex);
+    } else {
+        console.error('Row not found:', rowIndex);
+    }
+}
+
+function handleColumnSelection(event) {
+    const th = event.target;
+    const colIndex = parseInt(th.dataset.column);
+
+    console.log('Column clicked:', { colIndex });
+
+    if (isNaN(colIndex)) {
+        console.error('Invalid column index:', th.dataset);
+        return;
+    }
+
+    clearSelections();
+    selectedColumn = colIndex;
+    const cells = document.querySelectorAll(`#spreadsheet td[data-column="${colIndex}"], #spreadsheet th[data-column="${colIndex}"]`);
+    cells.forEach(cell => cell.classList.add('selected-column'));
+    console.log('Selected column:', colIndex, 'Cells affected:', cells.length);
+}
+
+function clearSelections() {
+    console.log('Clearing selections:', { selectedCells, selectedRow, selectedColumn });
+
+    // Clear cell selections
+    selectedCells.forEach(cellKey => {
+        const [row, col] = cellKey.split('-').map(Number);
+        const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
+        if (cell) {
+            cell.classList.remove('selected-cell');
+        }
+    });
+    selectedCells = [];
+
+    // Clear row selection
+    if (selectedRow !== null) {
+        const row = dataBody.children[selectedRow];
+        if (row) {
+            row.classList.remove('selected-row');
+        }
+        selectedRow = null;
+    }
+
+    // Clear column selection
+    if (selectedColumn !== null) {
+        const cells = document.querySelectorAll(`#spreadsheet td[data-column="${selectedColumn}"], #spreadsheet th[data-column="${selectedColumn}"]`);
+        cells.forEach(cell => cell.classList.remove('selected-column'));
+        selectedColumn = null;
+    }
+
+    formulaBar.value = '';
+    updateFillHandle();
+    console.log('Selections cleared');
+}
 // Update SQL database
 function updateSQLDatabase() {
-    if (!SQL || !db) return;
+    if (!SQL || !db) {
+        console.warn('SQL.js not ready');
+        return;
+    }
     
     try {
-        // Clear existing table
         db.run('DROP TABLE IF EXISTS data;');
         
-        // Create table with current headers
-        const createTableSQL = `CREATE TABLE data (${headers.map(h => `"${h}" TEXT`).join(', ')});`;
+        // Sanitize headers for valid SQL column names
+        const sanitizedHeaders = headers.map((h, i) => {
+            if (!h || h.trim() === '') return `Column${i + 1}`;
+            // Replace spaces and special characters, avoid reserved words
+            return `"${h.replace(/[^a-zA-Z0-9_]/g, '_')}"`;
+        });
+        
+        const createTableSQL = `CREATE TABLE data (${sanitizedHeaders.join(', ')} TEXT);`;
+        console.log('Executing CREATE TABLE:', createTableSQL);
         db.run(createTableSQL);
         
-        // Insert data
+        // Prepare INSERT statement with correct placeholders
         const placeholders = headers.map(() => '?').join(', ');
         const stmt = db.prepare(`INSERT INTO data VALUES (${placeholders});`);
         
-        currentData.forEach(row => {
-            // Ensure row has same number of columns as headers
-            const normalizedRow = headers.map((_, i) => row[i] || '');
+        currentData.forEach((row, rowIndex) => {
+            // Normalize row and escape commas in values
+            const normalizedRow = headers.map((_, i) => {
+                let value = row[i] || '';
+                // Convert formula errors or numbers to strings
+                if (typeof value === 'number' || value.startsWith('#')) {
+                    return value.toString();
+                }
+                // Escape commas by wrapping in quotes
+                return value.replace(/"/g, '""');
+            });
+            console.log(`Inserting row ${rowIndex}:`, normalizedRow);
             stmt.run(normalizedRow);
         });
         
         stmt.free();
+        console.log('SQL database updated');
     } catch (error) {
-        console.error("SQL Error:", error);
+        console.error('SQL Error:', error.message, 'SQL:', createTableSQL || 'N/A');
+        alert(`SQL Error: ${error.message}`);
     }
 }
 
 // Update chart dropdowns
 function updateChartDropdowns() {
+    console.log('Updating chart dropdowns');
     xAxisSelect.innerHTML = '';
     yAxisSelect.innerHTML = '';
     
@@ -248,13 +1364,14 @@ function updateChartDropdowns() {
         yAxisSelect.appendChild(option2);
     });
     
-    // Default selections
     if (headers.length >= 1) xAxisSelect.value = headers[0];
     if (headers.length >= 2) yAxisSelect.value = headers[1];
+    console.log('Chart dropdowns updated');
 }
 
 // Run SQL query
 function runSQL() {
+    console.log('Running SQL query');
     if (!SQL || !db) {
         alert('SQL.js is not loaded yet. Please wait a moment and try again.');
         return;
@@ -274,25 +1391,27 @@ function runSQL() {
             return;
         }
         
-        // Get column names and data
         const columns = result[0].columns;
         const values = result[0].values;
         
-        // Update headers and data
         headers = columns;
         currentData = values.map(row => row.map(cell => cell === null ? '' : cell.toString()));
         
-        // Re-render spreadsheet
+        formulas = [];
+        dependencies = {};
+        
         renderSpreadsheet();
         updateChartDropdowns();
-        
+        console.log('SQL query executed, data updated');
     } catch (error) {
+        console.error('SQL Error:', error);
         alert(`SQL Error: ${error.message}`);
     }
 }
 
 // Create chart
 function createChart() {
+    console.log('Creating chart');
     if (headers.length === 0 || currentData.length === 0) {
         alert('No data available to create chart');
         return;
@@ -302,7 +1421,6 @@ function createChart() {
     const xAxis = xAxisSelect.value;
     const yAxis = yAxisSelect.value;
     
-    // Get column indexes
     const xIndex = headers.indexOf(xAxis);
     const yIndex = headers.indexOf(yAxis);
     
@@ -311,11 +1429,14 @@ function createChart() {
         return;
     }
     
-    // Prepare data
-    const labels = currentData.map(row => row[xIndex]);
-    const dataValues = currentData.map(row => parseFloat(row[yIndex]) || 0);
+    const dataValues = currentData.map(row => parseFloat(row[yIndex]));
+    if (dataValues.some(isNaN)) {
+        alert('Y-axis must contain numeric values.');
+        return;
+    }
     
-    // Create chart config
+    const labels = currentData.map(row => row[xIndex]);
+    
     const config = {
         type: chartType,
         data: {
@@ -339,7 +1460,6 @@ function createChart() {
         }
     };
     
-    // Create chart
     const chartId = `chart-${Date.now()}`;
     const chartItem = document.createElement('div');
     chartItem.className = 'chart-item';
@@ -356,7 +1476,6 @@ function createChart() {
     const chartCtx = document.getElementById(chartId).getContext('2d');
     const chart = new Chart(chartCtx, config);
     
-    // Add chart to collection
     charts.push({
         id: chartId,
         chart: chart,
@@ -365,42 +1484,41 @@ function createChart() {
         yAxis: yAxis
     });
     
-    // Add event listeners for chart actions
     chartItem.querySelector('.delete-chart').addEventListener('click', function() {
-        const id = this.dataset.id;
-        deleteChart(id);
+        console.log(`Deleting chart: ${this.dataset.id}`);
+        deleteChart(this.dataset.id);
     });
     
     chartItem.querySelector('.download-chart').addEventListener('click', function() {
-        const id = this.dataset.id;
-        downloadChart(id);
+        console.log(`Downloading chart: ${this.dataset.id}`);
+        downloadChart(this.dataset.id);
     });
+    console.log('Chart created:', chartId);
 }
 
 // Generate colors for charts
 function getChartColors(type, count) {
-    if (type === 'pie' || type === 'doughnut') {
-        return Array(count).fill().map((_, i) => {
-            const hue = (i * 360 / count) % 360;
-            return `hsl(${hue}, 70%, 60%)`;
-        });
-    } else {
-        return ['#4CAF50'];
-    }
+    return Array(count).fill().map((_, i) => {
+        const hue = (i * 360 / count) % 360;
+        return `hsl(${hue}, 70%, 60%)`;
+    });
 }
 
 // Delete chart
 function deleteChart(id) {
+    console.log('Deleting chart:', id);
     const index = charts.findIndex(chart => chart.id === id);
     if (index !== -1) {
         charts[index].chart.destroy();
         charts.splice(index, 1);
-        document.querySelector(`[data-id="${id}"]`).closest('.chart-item').remove();
+        const chartItem = document.getElementById(id)?.parentElement;
+        if (chartItem) chartItem.remove();
     }
 }
 
 // Download chart
 function downloadChart(id) {
+    console.log('Downloading chart:', id);
     const chart = charts.find(chart => chart.id === id);
     if (!chart) return;
     
@@ -412,12 +1530,12 @@ function downloadChart(id) {
 
 // Export as CSV
 function exportCSV() {
+    console.log('Exporting as CSV');
     if (headers.length === 0) {
         alert('No data to export');
         return;
     }
     
-    // Create CSV content
     let csvContent = headers.join(',') + '\n';
     csvContent += currentData.map(row => 
         row.map(cell => 
@@ -425,7 +1543,6 @@ function exportCSV() {
         ).join(',')
     ).join('\n');
     
-    // Download
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -439,32 +1556,30 @@ function exportCSV() {
 
 // Export as Excel
 function exportExcel() {
+    console.log('Exporting as Excel');
     if (headers.length === 0) {
         alert('No data to export');
         return;
     }
     
-    // Prepare data
     const exportData = [headers, ...currentData];
     
-    // Create worksheet
     const ws = XLSX.utils.aoa_to_sheet(exportData);
     
-    // Create workbook
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
     
-    // Export
     XLSX.writeFile(wb, 'data_export.xlsx');
 }
 
 // Add column
 function addColumn() {
-    const colName = `Column ${headers.length + 1}`;
+    console.log('Adding column');
+    const colName = `Column${headers.length + 1}`;
     headers.push(colName);
     
-    // Add empty values to each row
     currentData.forEach(row => row.push(''));
+    formulas.forEach(row => row?.push(undefined));
     
     renderSpreadsheet();
     updateSQLDatabase();
@@ -473,19 +1588,25 @@ function addColumn() {
 
 // Add row
 function addRow() {
+    console.log('Adding row');
     currentData.push(headers.map(() => ''));
+    formulas.push([]);
+    
     renderSpreadsheet();
     updateSQLDatabase();
+    updateChartDropdowns();
 }
 
 // Clear data
 function clearData() {
+    console.log('Clearing data');
     if (confirm('Are you sure you want to clear all data?')) {
         headers = [];
         currentData = [];
+        formulas = [];
+        dependencies = {};
         renderSpreadsheet();
         
-        // Clear all charts
         charts.forEach(chart => chart.chart.destroy());
         charts = [];
         chartList.innerHTML = '';

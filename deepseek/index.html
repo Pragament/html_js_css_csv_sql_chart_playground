@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SheetJS + SQL.js + Charts Spreadsheet App</title>
+    <title>Spreadsheet App</title>
     <link rel="stylesheet" href="styles.css">
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/sql-wasm.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
 </head>
 <body>
-    <div class="app-container">
+    <div class="container">
         <div class="sidebar">
             <h2>Sample CSV Files</h2>
             <ul id="sample-files">
@@ -18,78 +18,51 @@
                 <li data-file="employees">Employee Data</li>
                 <li data-file="inventory">Inventory Data</li>
             </ul>
-            
-            <div class="file-import">
-                <h2>Import CSV/Excel</h2>
-                <input type="file" id="file-input" accept=".csv,.xlsx,.xls">
-                <button id="import-btn">Import File</button>
-            </div>
-            
-            <div class="sql-section">
-                <h2>SQL Query</h2>
-                <textarea id="sql-query" placeholder="SELECT * FROM data"></textarea>
-                <button id="run-sql">Run SQL</button>
-            </div>
-            
-            <div class="chart-section">
-                <h2>Create Chart</h2>
-                <select id="chart-type">
-                    <option value="bar">Bar Chart</option>
-                    <option value="line">Line Chart</option>
-                    <option value="pie">Pie Chart</option>
-                    <option value="doughnut">Doughnut Chart</option>
-                </select>
-                <div class="chart-options">
-                    <div>
-                        <label for="x-axis">X-Axis:</label>
-                        <select id="x-axis"></select>
-                    </div>
-                    <div>
-                        <label for="y-axis">Y-Axis:</label>
-                        <select id="y-axis"></select>
-                    </div>
-                </div>
-                <button id="create-chart">Create Chart</button>
-            </div>
-            
-            <div class="export-section">
-                <button id="export-csv">Export as CSV</button>
-                <button id="export-excel">Export as Excel</button>
-            </div>
         </div>
-        
         <div class="main-content">
             <div class="toolbar">
+                <button id="import-btn">Import File</button>
+                <input type="file" id="file-input" accept=".csv,.xlsx,.xls" style="display: none;">
+                <button id="export-csv">Export CSV</button>
+                <button id="export-excel">Export Excel</button>
                 <button id="add-column">Add Column</button>
                 <button id="add-row">Add Row</button>
                 <button id="clear-data">Clear Data</button>
+                <input id="formula-bar" type="text" placeholder="Formula (e.g., =SUM(A1:A5))">
             </div>
-            
             <div class="tabs">
                 <button class="tab-button active" data-tab="spreadsheet-tab">Spreadsheet</button>
+                <button class="tab-button" data-tab="sql-tab">SQL Query</button>
                 <button class="tab-button" data-tab="chart-tab">Charts</button>
             </div>
-            
-            <div id="spreadsheet-tab" class="tab-content active">
-                <div class="spreadsheet-container">
-                    <table id="spreadsheet">
-                        <thead>
-                            <tr id="header-row"></tr>
-                        </thead>
-                        <tbody id="data-body"></tbody>
-                    </table>
-                </div>
+            <div class="tab-content active" id="spreadsheet-tab">
+                <div id="loading" style="display: none;">Loading...</div>
+                <table id="spreadsheet">
+                    <thead>
+                        <tr id="header-row"></tr>
+                    </thead>
+                    <tbody id="data-body"></tbody>
+                </table>
             </div>
-            
-            <div id="chart-tab" class="tab-content">
-                <div class="chart-container">
-                    <canvas id="chart"></canvas>
+            <div class="tab-content" id="sql-tab">
+                <textarea id="sql-query" rows="10" placeholder="Enter SQL query"></textarea>
+                <button id="run-sql" disabled>Run SQL</button>
+            </div>
+            <div class="tab-content" id="chart-tab">
+                <div class="chart-controls">
+                    <select id="chart-type">
+                        <option value="bar">Bar</option>
+                        <option value="line">Line</option>
+                        <option value="pie">Pie</option>
+                    </select>
+                    <select id="x-axis"></select>
+                    <select id="y-axis"></select>
+                    <button id="create-chart">Create Chart</button>
                 </div>
                 <div id="chart-list"></div>
             </div>
         </div>
     </div>
-
     <script src="app.js"></script>
 </body>
 </html>
