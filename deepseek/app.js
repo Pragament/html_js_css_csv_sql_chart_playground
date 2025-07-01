@@ -620,7 +620,8 @@ function evaluateFormula(formula, row, col) {
             expr = expr.replace(funcExpr, result);
         }
 
-        return expr;
+        return eval(expr);
+
     } catch (error) {
         console.error(`Formula error at (${row}, ${col}): ${error.message}`);
         return error.message.startsWith('#') ? error.message : '#ERROR!';
@@ -780,8 +781,9 @@ function renderSpreadsheet() {
     console.log('Rendering spreadsheet');
     headerRow.innerHTML = '<th class="row-number-header"></th>';
     dataBody.innerHTML = '';
-    clearSelections();
-    
+
+    // NOTE: Removed clearSelections() here to preserve selections across renders
+
     headers.forEach((header, index) => {
         const th = document.createElement('th');
         th.textContent = header;
@@ -800,10 +802,10 @@ function renderSpreadsheet() {
         });
         headerRow.appendChild(th);
     });
-    
+
     currentData.forEach((row, rowIndex) => {
         const tr = document.createElement('tr');
-        
+
         const rowNumberTd = document.createElement('td');
         rowNumberTd.className = 'row-number';
         rowNumberTd.textContent = rowIndex + 1;
@@ -814,7 +816,7 @@ function renderSpreadsheet() {
             handleRowSelection(event);
         });
         tr.appendChild(rowNumberTd);
-        
+
         row.forEach((cell, colIndex) => {
             const td = document.createElement('td');
             td.textContent = cell || '';
@@ -834,7 +836,7 @@ function renderSpreadsheet() {
             });
             tr.appendChild(td);
         });
-        
+
         while (tr.children.length - 1 < headers.length) {
             const td = document.createElement('td');
             td.contentEditable = true;
@@ -854,14 +856,22 @@ function renderSpreadsheet() {
             });
             tr.appendChild(td);
         }
-        
+
         dataBody.appendChild(tr);
     });
-    
+
+    // Re-apply selected cells highlighting after rendering
+    selectedCells.forEach(key => {
+        const [row, col] = key.split('-').map(Number);
+        const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
+        if (cell) cell.classList.add('selected-cell');
+    });
+
     // Add fill handle to selected cell
     updateFillHandle();
     console.log('Spreadsheet rendered, headers:', headers, 'data:', currentData);
 }
+
 
 // Update fill handle visibility
 function updateFillHandle() {
@@ -1062,53 +1072,46 @@ function applyFill() {
 // Detect pattern in cell value
 function detectPattern(value) {
     console.log('Detecting pattern for value:', value);
-    // Date pattern (e.g., 5.6.2025 or 25.06.2025)
-    const dateMatch = value.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/); // DD.MM.YYYY
+
+    // Date pattern
+    const dateMatch = value.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
     if (dateMatch) {
         const [_, day, month, year] = dateMatch;
         const paddedDay = day.padStart(2, '0');
         const paddedMonth = month.padStart(2, '0');
         const date = new Date(`${year}-${paddedMonth}-${paddedDay}`);
         if (!isNaN(date.getTime())) {
-            console.log('Detected date pattern, parsed components:', { day: paddedDay, month: paddedMonth, year }, 'resulting date:', date.toLocaleString());
             return { type: 'date', base: date, inputFormat: { day: day.length === 1, month: month.length === 1 } };
-        } else {
-            console.log('Invalid date after parsing:', value);
         }
     }
 
-    // Text + number sequence pattern (e.g., Hello 1, Hello 2)
+    // Text + number sequence (only if prefix is not purely numeric)
     const textNumberMatch = value.match(/^(.+?)(\d+)$/);
-    if (textNumberMatch) {
+    if (textNumberMatch && isNaN(parseFloat(textNumberMatch[1]))) {
         return { type: 'text-number', prefix: textNumberMatch[1], number: parseInt(textNumberMatch[2]) };
     }
 
-    // Numeric sequence (e.g., 1, 2, 3 or 10, 20, 30)
+    // Numeric sequence
     const num = parseFloat(value);
     if (!isNaN(num)) {
-        // Check adjacent cells for sequence (simplistic detection)
-        const prevRow = startRow > 0 ? currentData[startRow - 1]?.[startCol] : null;
-        const nextRow = startRow < currentData.length - 1 ? currentData[startRow + 1]?.[startCol] : null;
-        const prevCol = startCol > 0 ? currentData[startRow]?.[startCol - 1] : null;
-        const nextCol = startCol < headers.length - 1 ? currentData[startRow]?.[startCol + 1] : null;
-
-        const neighbors = [prevRow, nextRow, prevCol, nextCol].filter(v => v !== null && !isNaN(parseFloat(v)));
-        if (neighbors.length > 0) {
-            const diffs = neighbors.map(v => parseFloat(v) - num);
-            const avgDiff = diffs.reduce((a, b) => a + b, 0) / diffs.length;
-            if (Math.abs(avgDiff) > 0 && Math.abs(avgDiff) < 100) { // Arbitrary threshold
-                console.log('Detected numeric sequence with step:', avgDiff);
-                return { type: 'number', base: num, step: avgDiff };
-            }
+        if (selectedCells.length === 2) {
+            const [first, second] = selectedCells.map(cellKey => {
+                const [row, col] = cellKey.split('-').map(Number);
+                return parseFloat(currentData[row]?.[col]) || 0;
+            });
+            const step = second - first;
+            console.log('Detected two-cell selection with step:', step);
+            return { type: 'number', base: num, step: step };
         }
-        console.log('Detected simple number:', num);
+        console.log('Single cell fill detected, defaulting to step=1');
         return { type: 'number', base: num, step: 1 };
     }
 
-    // Default: treat as text (no increment)
-    console.log('Detected text pattern:', value);
+    // Default: text
     return { type: 'text', base: value };
 }
+
+
 
 // Get next value based on pattern
 function getNextValue(original, pattern, step) {
@@ -1119,19 +1122,20 @@ function getNextValue(original, pattern, step) {
             nextDate.setDate(nextDate.getDate() + step); // Increment by days
             console.log('Next date calculated:', nextDate.toLocaleString());
             const day = pattern.inputFormat.day ? nextDate.getDate() : String(nextDate.getDate()).padStart(2, '0');
-            const month = pattern.inputFormat.month ? nextDate.getMonth() + 1 : String(nextDate.getMonth() + 1).padStart(2, '0'); // Month is 0-based
+            const month = pattern.inputFormat.month ? nextDate.getMonth() + 1 : String(nextDate.getMonth() + 1).padStart(2, '0');
             const year = nextDate.getFullYear();
-            return `${day}.${month}.${year}`; // Match input format
+            return `${day}.${month}.${year}`;
         case 'text-number':
             return `${pattern.prefix}${pattern.number + step}`;
         case 'number':
-            return (pattern.base + (pattern.step || 1) * step).toString();
+            return (pattern.base + (pattern.step || 0) * step).toString();
         case 'text':
             return pattern.base; // No change for pure text
         default:
             return original;
     }
 }
+
 
 // Adjust formula references for filling
 function adjustFormula(formula, srcRow, srcCol, destRow, destCol) {
@@ -1175,55 +1179,81 @@ function adjustFormula(formula, srcRow, srcCol, destRow, destCol) {
 }
 
 // [Remaining code remains unchanged]
+let isCtrlSelecting = false;
 
-// Selection handlers
-// Selection handlers
 function handleCellSelection(event) {
     const td = event.target;
     const rowIndex = parseInt(td.dataset.row);
     const colIndex = parseInt(td.dataset.column);
 
-    console.log('Cell clicked:', { rowIndex, colIndex, ctrlKey: event.ctrlKey, metaKey: event.metaKey });
+    if (isNaN(rowIndex) || isNaN(colIndex)) return;
 
-    if (isNaN(rowIndex) || isNaN(colIndex)) {
-        console.error('Invalid cell indices:', td.dataset);
+    const cellKey = `${rowIndex}-${colIndex}`;
+    event.stopPropagation();
+
+    if (event.ctrlKey && event.buttons === 1) {
+        // Start Ctrl + drag selection
+        isCtrlSelecting = true;
+        addCellToSelection(td, cellKey);
+        formulaBar.value = formulas[rowIndex]?.[colIndex] || td.textContent || '';
+        updateFillHandle();
         return;
     }
 
-    const cellKey = `${rowIndex}-${colIndex}`;
-    event.stopPropagation(); // Prevent event bubbling to parent elements
+    if (event.shiftKey && selectedCells.length > 0) {
+        // Shift range selection
+        const lastCell = selectedCells[selectedCells.length - 1];
+        const [lastRow, lastCol] = lastCell.split('-').map(Number);
 
-    if (event.ctrlKey || event.metaKey) {
-        // Multi-select: Toggle selection
+        const startRow = Math.min(lastRow, rowIndex);
+        const endRow = Math.max(lastRow, rowIndex);
+        const startCol = Math.min(lastCol, colIndex);
+        const endCol = Math.max(lastCol, colIndex);
+
+        clearSelections();
+
+        for (let r = startRow; r <= endRow; r++) {
+            for (let c = startCol; c <= endCol; c++) {
+                const key = `${r}-${c}`;
+                const cell = document.querySelector(`td[data-row="${r}"][data-column="${c}"]`);
+                if (cell) {
+                    selectedCells.push(key);
+                    cell.classList.add('selected-cell');
+                }
+            }
+        }
+
+    } else if (event.ctrlKey || event.metaKey) {
+        // Ctrl click toggles selection
         const index = selectedCells.indexOf(cellKey);
         if (index === -1) {
             selectedCells.push(cellKey);
             td.classList.add('selected-cell');
-            console.log('Added cell to selection:', cellKey, 'Selected cells:', selectedCells);
         } else {
             selectedCells.splice(index, 1);
             td.classList.remove('selected-cell');
-            console.log('Removed cell from selection:', cellKey, 'Selected cells:', selectedCells);
         }
+
     } else {
-        // Single select: Clear all and select only this cell
+        // Single select
         clearSelections();
         selectedCells = [cellKey];
         td.classList.add('selected-cell');
-        formulaBar.value = formulas[rowIndex]?.[colIndex] || td.textContent || '';
-        console.log('Selected single cell:', cellKey);
     }
 
-    // Ensure mutual exclusivity with row/column selection
-    if (selectedRow !== null || selectedColumn !== null) {
-        clearSelections();
-        selectedCells = [cellKey];
-        td.classList.add('selected-cell');
-        console.log('Cleared row/column selection, selected cell:', cellKey);
-    }
-
+    formulaBar.value = formulas[rowIndex]?.[colIndex] || td.textContent || '';
     updateFillHandle();
 }
+
+
+function addCellToSelection(td, cellKey) {
+    if (!selectedCells.includes(cellKey)) {
+        selectedCells.push(cellKey);
+        td.classList.add('selected-cell');
+    }
+}
+
+
 
 function handleRowSelection(event) {
     const rowNumberTd = event.target;
@@ -1616,3 +1646,19 @@ function clearData() {
         }
     }
 }
+
+document.addEventListener('mouseup', () => {
+    isCtrlSelecting = false;
+});
+
+document.addEventListener('mouseover', event => {
+    if (isCtrlSelecting && event.ctrlKey && event.buttons === 1) {
+        const td = event.target.closest('td[data-row][data-column]');
+        if (td) {
+            const rowIndex = parseInt(td.dataset.row);
+            const colIndex = parseInt(td.dataset.column);
+            const cellKey = `${rowIndex}-${colIndex}`;
+            addCellToSelection(td, cellKey);
+        }
+    }
+});
