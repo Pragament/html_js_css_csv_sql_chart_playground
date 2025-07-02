@@ -1,4 +1,4 @@
-// Initialize SQL.js
+
 let SQL;
 let db;
 
@@ -69,26 +69,36 @@ let fillRange = [];
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM loaded, setting up event listeners');
     // Event listeners
-    document.getElementById('import-btn').addEventListener('click', () => {
+    const importBtn = document.getElementById('import-btn');
+    if (importBtn) importBtn.addEventListener('click', () => {
         console.log('Import button clicked');
-        fileInput.click();
+        if (fileInput) fileInput.click();
     });
-    fileInput.addEventListener('change', handleFileSelect);
-    document.getElementById('run-sql').addEventListener('click', runSQL);
-    document.getElementById('export-csv').addEventListener('click', exportCSV);
-    document.getElementById('export-excel').addEventListener('click', exportExcel);
-    document.getElementById('add-column').addEventListener('click', addColumn);
-    document.getElementById('add-row').addEventListener('click', addRow);
-    document.getElementById('clear-data').addEventListener('click', clearData);
-    document.getElementById('create-chart').addEventListener('click', createChart);
+    if (fileInput) fileInput.addEventListener('change', handleFileSelect);
+    const runSqlButton = document.getElementById('run-sql');
+    if (runSqlButton) runSqlButton.addEventListener('click', runSQL);
+    const exportCsvButton = document.getElementById('export-csv');
+    if (exportCsvButton) exportCsvButton.addEventListener('click', exportCSV);
+    const exportExcelButton = document.getElementById('export-excel');
+    if (exportExcelButton) exportExcelButton.addEventListener('click', exportExcel);
+    const addColumnButton = document.getElementById('add-column');
+    if (addColumnButton) addColumnButton.addEventListener('click', addColumn);
+    const addRowButton = document.getElementById('add-row');
+    if (addRowButton) addRowButton.addEventListener('click', addRow);
+    const clearDataButton = document.getElementById('clear-data');
+    if (clearDataButton) clearDataButton.addEventListener('click', clearData);
+    const createChartButton = document.getElementById('create-chart');
+    if (createChartButton) createChartButton.addEventListener('click', createChart);
 
     // Formula bar listeners
-    formulaBar.addEventListener('blur', updateCellFromFormulaBar);
-    formulaBar.addEventListener('keypress', function(event) {
-        if (event.key === 'Enter') {
-            updateCellFromFormulaBar();
-        }
-    });
+    if (formulaBar) {
+        formulaBar.addEventListener('blur', updateCellFromFormulaBar);
+        formulaBar.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                updateCellFromFormulaBar();
+            }
+        });
+    }
 
     // Tab switching
     document.querySelectorAll('.tab-button').forEach(button => {
@@ -121,6 +131,39 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize with sample data
     console.log('Loading initial sales data');
     loadSampleData('sales');
+
+    // Add mousemove and mouseup listeners for drag selection
+    let isDragging = false;
+    let dragStartCell = null;
+
+    document.addEventListener('mousedown', function(event) {
+        const td = event.target.closest('td[data-row][data-column]');
+        if (td && !td.classList.contains('row-number') && !event.target.classList.contains('fill-handle')) {
+            isDragging = true;
+            const rowIndex = parseInt(td.dataset.row);
+            const colIndex = parseInt(td.dataset.column);
+            dragStartCell = [rowIndex, colIndex];
+            handleCellSelection(event);
+        }
+    });
+
+    document.addEventListener('mousemove', function(event) {
+        if (!isDragging || !dragStartCell) return;
+        const td = event.target.closest('td[data-row][data-column]');
+        if (!td || td.classList.contains('row-number')) return;
+
+        const rowIndex = parseInt(td.dataset.row);
+        const colIndex = parseInt(td.dataset.column);
+        handleDragSelection(dragStartCell[0], dragStartCell[1], rowIndex, colIndex, event.ctrlKey);
+    });
+
+    document.addEventListener('mouseup', function() {
+        if (isDragging) {
+            isDragging = false;
+            dragStartCell = null;
+            console.log('Drag selection ended, selected cells:', selectedCells);
+        }
+    });
 });
 
 // Update cell from formula bar
@@ -551,7 +594,6 @@ function evaluateFormula(formula, row, col) {
                 if (args.length !== 1) throw new Error('#VALUE!');
                 console.log(`TRIM raw arg: ${args[0]}`);
                 let text = args[0];
-                // Handle quoted strings by removing outer quotes and unescaping inner quotes
                 if (text.startsWith('"') && text.endsWith('"')) {
                     text = text.slice(1, -1).replace(/""/g, '"');
                 }
@@ -568,11 +610,10 @@ function evaluateFormula(formula, row, col) {
 
         // Parse function calls with support for quotes and conditions
         const parseFunctionCalls = (expression) => {
-            const match = expression.match(/(\w+(\.\w+)?)\((.*)\)$/i); // Support function names with dots
+            const match = expression.match(/(\w+(\.\w+)?)\((.*)\)$/i);
             if (!match) throw new Error('#SYNTAX!');
             let funcName = match[1].toUpperCase();
             console.log(`Parsing function: ${funcName}`);
-            // Map function names with dots
             funcName = functionMap[funcName] || funcName;
             if (!functions[funcName]) throw new Error('#NAME?');
             let argStr = match[3].trim();
@@ -638,7 +679,7 @@ function updateDependents(row, col) {
                 currentData[depRow][depCol] = evaluateFormula(formulas[depRow][depCol], depRow, depCol);
                 const cell = document.querySelector(`td[data-row="${depRow}"][data-column="${depCol}"]`);
                 if (cell) cell.textContent = currentData[depRow][depCol];
-                updateDependents(depRow, depCol); // Recursively update
+                updateDependents(depRow, depCol);
             }
         }
     }
@@ -646,6 +687,7 @@ function updateDependents(row, col) {
 
 // Adjust formula references for filling
 function adjustFormula(formula, srcRow, srcCol, destRow, destCol) {
+    console.log(`Adjusting formula "${formula}" from (${srcRow}, ${srcCol}) to (${destRow}, ${destCol})`);
     if (!formula.startsWith('=')) return formula;
 
     let adjusted = formula;
@@ -666,7 +708,7 @@ function adjustFormula(formula, srcRow, srcCol, destRow, destCol) {
             const newStart = toCellReference(startRef.row + rowDelta, startRef.col + colDelta);
             const newEnd = toCellReference(endRef.row + rowDelta, endRef.col + colDelta);
             const newRange = `${newStart}:${newEnd}`;
-
+            console.log(`Adjusted range ${ref} to ${newRange}`);
             adjusted = adjusted.replace(ref, newRange);
         } else {
             // Handle single cell
@@ -676,7 +718,7 @@ function adjustFormula(formula, srcRow, srcCol, destRow, destCol) {
             const rowDelta = destRow - srcRow;
             const colDelta = destCol - srcCol;
             const newRef = toCellReference(cellRef.row + rowDelta, cellRef.col + colDelta);
-
+            console.log(`Adjusted cell ${ref} to ${newRef}`);
             adjusted = adjusted.replace(ref, newRef);
         }
     }
@@ -782,8 +824,6 @@ function renderSpreadsheet() {
     headerRow.innerHTML = '<th class="row-number-header"></th>';
     dataBody.innerHTML = '';
 
-    // NOTE: Removed clearSelections() here to preserve selections across renders
-
     headers.forEach((header, index) => {
         const th = document.createElement('th');
         th.textContent = header;
@@ -795,7 +835,7 @@ function renderSpreadsheet() {
             handleColumnSelection(event);
         });
         th.addEventListener('blur', () => {
-            headers[index] = th.textContent.trim() || `Column${index + 1}`; // Prevent empty headers
+            headers[index] = th.textContent.trim() || `Column${index + 1}`;
             console.log(`Header updated: ${headers[index]}`);
             updateSQLDatabase();
             updateChartDropdowns();
@@ -872,14 +912,11 @@ function renderSpreadsheet() {
     console.log('Spreadsheet rendered, headers:', headers, 'data:', currentData);
 }
 
-
 // Update fill handle visibility
 function updateFillHandle() {
-    // Remove existing fill handles
     document.querySelectorAll('.fill-handle').forEach(handle => handle.remove());
     
-    // Add fill handle if a single cell is selected
-    if (selectedCells.length === 1) {
+    if (selectedCells.length === 1 || selectedCells.length === 2) {
         const [row, col] = selectedCells[0].split('-').map(Number);
         const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
         if (cell) {
@@ -896,35 +933,40 @@ function updateFillHandle() {
 // Handle double-click fill
 function handleDoubleClickFill(event) {
     event.stopPropagation();
+    if (selectedCells.length !== 1) return;
     const [row, col] = selectedCells[0].split('-').map(Number);
     console.log('Double-click fill started from cell:', row, col);
     
-    // Determine the last row to fill based on the left adjacent column
     let endRow = row;
     const adjacentCol = col - 1;
     
+    // If there's an adjacent column and it has data, extend fill range
     if (adjacentCol >= 0) {
-        // Check left column for non-empty cells
-        while (endRow + 1 < currentData.length && currentData[endRow + 1][adjacentCol] !== undefined && currentData[endRow + 1][adjacentCol] !== '') {
+        while (
+            endRow + 1 < currentData.length &&
+            currentData[endRow + 1] !== undefined &&
+            currentData[endRow + 1][adjacentCol] != null &&
+            currentData[endRow + 1][adjacentCol].toString() !== ''
+        ) {
             endRow++;
         }
     } else {
-        // If no left column (e.g., col 0), fill to the last row of the dataset
-        endRow = currentData.length - 1;
+        // If no adjacent column, fill one row down
+        endRow = row + 1 < currentData.length ? row + 1 : row;
     }
     
-    // Ensure at least one cell is filled
-    if (endRow === row) {
+    // Ensure at least one cell is filled if possible
+    if (endRow === row && endRow + 1 < currentData.length) {
         endRow = row + 1;
     }
     
-    // Clear any previous fill range highlights
+    // Clear previous fill range highlighting
     document.querySelectorAll('.fill-range').forEach(cell => cell.classList.remove('fill-range'));
     
-    // Set fill range and highlight
     fillStartCell = [row, col];
     fillRange = getFillRange(row, col, endRow, col);
     
+    // Highlight fill range
     fillRange.forEach(([r, c]) => {
         const cell = document.querySelector(`td[data-row="${r}"][data-column="${c}"]`);
         if (cell && !cell.classList.contains('row-number')) {
@@ -935,7 +977,7 @@ function handleDoubleClickFill(event) {
     // Apply fill
     applyFill();
     
-    // Clear highlights after a short delay for visual feedback
+    // Remove highlighting after short delay
     setTimeout(() => {
         document.querySelectorAll('.fill-range').forEach(cell => cell.classList.remove('fill-range'));
     }, 500);
@@ -966,13 +1008,10 @@ function handleFillDrag(event) {
     const endRow = parseInt(target.dataset.row);
     const endCol = parseInt(target.dataset.column);
     
-    // Clear previous fill range highlights
     document.querySelectorAll('.fill-range').forEach(cell => cell.classList.remove('fill-range'));
     
-    // Calculate fill range
     fillRange = getFillRange(fillStartCell[0], fillStartCell[1], endRow, endCol);
     
-    // Highlight fill range
     fillRange.forEach(([row, col]) => {
         const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
         if (cell && !cell.classList.contains('row-number')) {
@@ -990,7 +1029,6 @@ function endFillDrag(event) {
     
     document.removeEventListener('mousemove', handleFillDrag);
     
-    // Clear fill range highlights
     document.querySelectorAll('.fill-range').forEach(cell => cell.classList.remove('fill-range'));
     
     if (fillRange.length > 0) {
@@ -1008,14 +1046,11 @@ function getFillRange(startRow, startCol, endRow, endCol) {
     const minCol = Math.min(startCol, endCol);
     const maxCol = Math.max(startCol, endCol);
     
-    // Support vertical or horizontal filling
     if (startRow === endRow) {
-        // Horizontal fill
         for (let col = minCol; col <= maxCol; col++) {
             range.push([startRow, col]);
         }
     } else if (startCol === endCol) {
-        // Vertical fill
         for (let row = minRow; row <= maxRow; row++) {
             range.push([row, startCol]);
         }
@@ -1024,163 +1059,195 @@ function getFillRange(startRow, startCol, endRow, endCol) {
     return range;
 }
 
+// Detect pattern for autofill
+function detectPattern() {
+    console.log('Detecting pattern for fillStartCell:', fillStartCell, 'fillRange:', fillRange);
 
-function applyFill() {
-    if (!fillStartCell || fillRange.length === 0) return;
-    
+    if (!fillStartCell) return { type: 'text', base: '', step: 0 };
+
     const [startRow, startCol] = fillStartCell;
-    const cell = document.querySelector(`td[data-row="${startRow}"][data-column="${startCol}"]`);
-    if (!cell) return;
-    
-    const value = formulas[startRow]?.[startCol] || cell.textContent.trim();
-    console.log('Applying fill for value:', value, 'from cell:', startRow, startCol);
-    
-    let pattern = detectPattern(value);
-    
-    fillRange.forEach(([row, col], index) => {
-        if (row === startRow && col === startCol) return; // Skip starting cell
-        const targetCell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
-        if (targetCell) {
-            let newValue;
-            if (value.startsWith('=')) {
-                // Fill formula
-                newValue = adjustFormula(value, startRow, startCol, row, col);
-                formulas[row] = formulas[row] || [];
-                formulas[row][col] = newValue;
-                newValue = evaluateFormula(newValue, row, col);
-                console.log(`Filled formula at (${row}, ${col}) with index ${index}: ${newValue}`);
-            } else {
-                // Fill non-formula
-                newValue = getNextValue(value, pattern, index); // Use index as the step offset
-                if (formulas[row]?.[col]) {
-                    delete formulas[row][col];
-                }
-                console.log(`Filled value at (${row}, ${col}) with index ${index}: ${newValue}`);
-            }
-            
-            targetCell.textContent = newValue;
-            currentData[row] = currentData[row] || [];
-            currentData[row][col] = newValue;
-            updateDependents(row, col);
-        }
-    });
-    
-    updateSQLDatabase();
-    renderSpreadsheet();
-}
-
-// Detect pattern in cell value
-function detectPattern(value) {
-    console.log('Detecting pattern for value:', value);
+    const startValue = formulas[startRow]?.[startCol] || currentData[startRow]?.[startCol] || '';
 
     // Date pattern
-    const dateMatch = value.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    const dateMatch = startValue.toString().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
     if (dateMatch) {
         const [_, day, month, year] = dateMatch;
         const paddedDay = day.padStart(2, '0');
         const paddedMonth = month.padStart(2, '0');
         const date = new Date(`${year}-${paddedMonth}-${paddedDay}`);
         if (!isNaN(date.getTime())) {
-            return { type: 'date', base: date, inputFormat: { day: day.length === 1, month: month.length === 1 } };
+            return { type: 'date', base: date, inputFormat: { day: day.length === 1, month: month.length === 1 }, step: 1 };
         }
     }
 
-    // Text + number sequence (only if prefix is not purely numeric)
-    const textNumberMatch = value.match(/^(.+?)(\d+)$/);
+    // Text + number pattern
+    const textNumberMatch = startValue.toString().match(/^(.+?)(\d+)$/);
     if (textNumberMatch && isNaN(parseFloat(textNumberMatch[1]))) {
-        return { type: 'text-number', prefix: textNumberMatch[1], number: parseInt(textNumberMatch[2]) };
+        return { type: 'text-number', prefix: textNumberMatch[1], number: parseInt(textNumberMatch[2]), step: 1 };
     }
 
-    // Numeric sequence
-    const num = parseFloat(value);
+    // Numeric pattern
+    const num = parseFloat(startValue);
     if (!isNaN(num)) {
-        if (selectedCells.length === 2) {
-            const [first, second] = selectedCells.map(cellKey => {
-                const [row, col] = cellKey.split('-').map(Number);
-                return parseFloat(currentData[row]?.[col]) || 0;
+        if (selectedCells.length >= 2) {
+            // Sort selected cells by row or column to determine direction
+            const sortedCells = selectedCells
+                .map(key => {
+                    const [row, col] = key.split('-').map(Number);
+                    return { row, col, value: parseFloat(currentData[row]?.[col]) };
+                })
+                .filter(cell => !isNaN(cell.value));
+
+            // Determine if cells are in a single row or column
+            const isHorizontal = sortedCells.every(cell => cell.row === startRow);
+            const isVertical = sortedCells.every(cell => cell.col === startCol);
+
+            if (!isHorizontal && !isVertical) {
+                console.log('Selected cells are not in a single row or column: copy mode');
+                return { type: 'number', base: num, step: 0 };
+            }
+
+            // Sort cells by position (left-to-right or top-to-bottom)
+            sortedCells.sort((a, b) => {
+                if (isHorizontal) return a.col - b.col;
+                return a.row - b.row;
             });
-            const step = second - first;
-            console.log('Detected two-cell selection with step:', step);
-            return { type: 'number', base: num, step: step };
+
+            // Calculate average step (arithmetic sequence)
+            let step = 0;
+            let validSequence = true;
+            const values = sortedCells.map(cell => cell.value);
+            if (values.length >= 2) {
+                const steps = [];
+                for (let i = 1; i < values.length; i++) {
+                    steps.push(values[i] - values[i - 1]);
+                }
+                // Check if steps are consistent (within a small tolerance for floating-point)
+                const avgStep = steps.reduce((sum, s) => sum + s, 0) / steps.length;
+                validSequence = steps.every(s => Math.abs(s - avgStep) < 0.0001);
+                step = validSequence ? avgStep : 0;
+            }
+
+            if (validSequence) {
+                console.log(`Multi-cell numeric sequence detected: values=${values}, step=${step}, direction=${isHorizontal ? 'horizontal' : 'vertical'}`);
+                return {
+                    type: 'number',
+                    base: sortedCells[0].value, // Use first cell's value as base
+                    step: step,
+                    direction: isHorizontal ? 'horizontal' : 'vertical',
+                    selectedCells: sortedCells.map(cell => [cell.row, cell.col])
+                };
+            } else {
+                console.log('Inconsistent numeric sequence: copy mode');
+                return { type: 'number', base: num, step: 0 };
+            }
         }
-        console.log('Single cell fill detected, defaulting to step=1');
-        return { type: 'number', base: num, step: 1 };
+        // Single cell: copy mode
+        console.log('Single cell numeric selection: copy mode');
+        return { type: 'number', base: num, step: 0 };
     }
 
-    // Default: text
-    return { type: 'text', base: value };
+    // Text pattern
+    return { type: 'text', base: startValue.toString(), step: 0 };
 }
 
-
-
-// Get next value based on pattern
-function getNextValue(original, pattern, step) {
-    console.log('Getting next value for pattern:', pattern, 'step:', step);
+// Get next value for autofill
+function getNextValue(original, pattern, stepIndex) {
+    console.log('Getting next value for pattern:', pattern, 'stepIndex:', stepIndex);
     switch (pattern.type) {
         case 'date':
             const nextDate = new Date(pattern.base);
-            nextDate.setDate(nextDate.getDate() + step); // Increment by days
-            console.log('Next date calculated:', nextDate.toLocaleString());
+            nextDate.setDate(nextDate.getDate() + stepIndex * pattern.step);
             const day = pattern.inputFormat.day ? nextDate.getDate() : String(nextDate.getDate()).padStart(2, '0');
             const month = pattern.inputFormat.month ? nextDate.getMonth() + 1 : String(nextDate.getMonth() + 1).padStart(2, '0');
             const year = nextDate.getFullYear();
             return `${day}.${month}.${year}`;
         case 'text-number':
-            return `${pattern.prefix}${pattern.number + step}`;
+            return `${pattern.prefix}${pattern.number + stepIndex * pattern.step}`;
         case 'number':
-            return (pattern.base + (pattern.step || 0) * step).toString();
+            if (pattern.step === 0) {
+                return pattern.base.toString(); // Copy mode
+            } else {
+                // Start series from the base value, applying step for each index
+                return (pattern.base + stepIndex * pattern.step).toString();
+            }
         case 'text':
-            return pattern.base; // No change for pure text
+            return pattern.base;
         default:
             return original;
     }
 }
 
+// Apply fill logic
+function applyFill() {
+    if (!fillStartCell || fillRange.length === 0) return;
 
-// Adjust formula references for filling
-function adjustFormula(formula, srcRow, srcCol, destRow, destCol) {
-    console.log(`Adjusting formula "${formula}" from (${srcRow}, ${srcCol}) to (${destRow}, ${destCol})`);
-    if (!formula.startsWith('=')) return formula;
+    const [startRow, startCol] = fillStartCell;
+    const cell = document.querySelector(`td[data-row="${startRow}"][data-column="${startCol}"]`);
+    if (!cell) return;
 
-    let adjusted = formula;
-    const refRegex = /[A-Z]+\d+(?::[A-Z]+\d+)?/g;
-    const matches = formula.match(refRegex) || [];
+    const pattern = detectPattern();
+    const sourceValue = formulas[startRow]?.[startCol] || cell.textContent.trim();
+    console.log('Applying fill from cell:', startRow, startCol, 'value:', sourceValue, 'pattern:', pattern);
 
-    for (let ref of matches) {
-        if (ref.includes(':')) {
-            // Handle range (e.g., A1:A5)
-            const [start, end] = ref.split(':');
-            const startRef = parseCellReference(start);
-            const endRef = parseCellReference(end);
-            if (!startRef || !endRef) continue;
-
-            const rowDelta = destRow - srcRow;
-            const colDelta = destCol - srcCol;
-
-            const newStart = toCellReference(startRef.row + rowDelta, startRef.col + colDelta);
-            const newEnd = toCellReference(endRef.row + rowDelta, endRef.col + colDelta);
-            const newRange = `${newStart}:${newEnd}`;
-            console.log(`Adjusted range ${ref} to ${newRange}`);
-            adjusted = adjusted.replace(ref, newRange);
-        } else {
-            // Handle single cell
-            const cellRef = parseCellReference(ref);
-            if (!cellRef) continue;
-
-            const rowDelta = destRow - srcRow;
-            const colDelta = destCol - srcCol;
-            const newRef = toCellReference(cellRef.row + rowDelta, cellRef.col + colDelta);
-            console.log(`Adjusted cell ${ref} to ${newRef}`);
-            adjusted = adjusted.replace(ref, newRef);
-        }
+    // Determine fill direction
+    let isHorizontalFill = true;
+    if (pattern.direction) {
+        isHorizontalFill = pattern.direction === 'horizontal';
+    } else if (fillRange.length > 0) {
+        isHorizontalFill = fillRange.every(([r, c]) => r === startRow);
     }
 
-    return adjusted;
+    // Get selected cells to skip
+    const selectedCellSet = new Set((pattern.selectedCells || [[startRow, startCol]]).map(([r, c]) => `${r}-${c}`));
+
+    fillRange.forEach(([row, col], index) => {
+        // Skip selected cells to preserve their values
+        const cellKey = `${row}-${col}`;
+        if (selectedCellSet.has(cellKey)) return;
+
+        const targetCell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
+        if (targetCell) {
+            let newValue;
+            if (sourceValue.startsWith('=')) {
+                // Adjust formula references
+                newValue = adjustFormula(sourceValue, startRow, startCol, row, col);
+                formulas[row] = formulas[row] || [];
+                formulas[row][col] = newValue;
+                newValue = evaluateFormula(newValue, row, col);
+                console.log(`Filled formula at (${row}, ${col}) with index ${index}: ${newValue}`);
+            } else {
+                // Calculate step index based on direction
+                let stepIndex;
+                if (isHorizontalFill) {
+                    stepIndex = col - startCol;
+                } else {
+                    stepIndex = row - startRow;
+                }
+                // Adjust step index to start after the last selected cell
+                if (pattern.selectedCells) {
+                    const lastSelected = pattern.selectedCells[pattern.selectedCells.length - 1];
+                    stepIndex = isHorizontalFill
+                        ? col - lastSelected[1] + pattern.selectedCells.length - 1
+                        : row - lastSelected[0] + pattern.selectedCells.length - 1;
+                }
+                newValue = getNextValue(sourceValue, pattern, stepIndex);
+                if (formulas[row]?.[col]) delete formulas[row][col];
+                console.log(`Filled value at (${row}, ${col}) with index ${stepIndex}: ${newValue}`);
+            }
+
+            targetCell.textContent = newValue;
+            currentData[row] = currentData[row] || [];
+            currentData[row][col] = newValue;
+            updateDependents(row, col);
+        }
+    });
+
+    updateSQLDatabase();
+    renderSpreadsheet();
 }
 
-// [Remaining code remains unchanged]
-let isCtrlSelecting = false;
-
+// Handle cell selection
 function handleCellSelection(event) {
     const td = event.target;
     const rowIndex = parseInt(td.dataset.row);
@@ -1191,17 +1258,14 @@ function handleCellSelection(event) {
     const cellKey = `${rowIndex}-${colIndex}`;
     event.stopPropagation();
 
-    if (event.ctrlKey && event.buttons === 1) {
-        // Start Ctrl + drag selection
-        isCtrlSelecting = true;
+    if (event.ctrlKey && !isDragging) {
         addCellToSelection(td, cellKey);
         formulaBar.value = formulas[rowIndex]?.[colIndex] || td.textContent || '';
         updateFillHandle();
         return;
     }
 
-    if (event.shiftKey && selectedCells.length > 0) {
-        // Shift range selection
+    if (event.shiftKey && selectedCells.length > 0 && !isDragging) {
         const lastCell = selectedCells[selectedCells.length - 1];
         const [lastRow, lastCol] = lastCell.split('-').map(Number);
 
@@ -1222,38 +1286,62 @@ function handleCellSelection(event) {
                 }
             }
         }
-
-    } else if (event.ctrlKey || event.metaKey) {
-        // Ctrl click toggles selection
-        const index = selectedCells.indexOf(cellKey);
-        if (index === -1) {
-            selectedCells.push(cellKey);
-            td.classList.add('selected-cell');
-        } else {
-            selectedCells.splice(index, 1);
-            td.classList.remove('selected-cell');
-        }
-
-    } else {
-        // Single select
+    } else if (!isDragging) {
         clearSelections();
         selectedCells = [cellKey];
         td.classList.add('selected-cell');
     }
 
-    formulaBar.value = formulas[rowIndex]?.[colIndex] || td.textContent || '';
+    formulaBar.value = selectedCells.length === 1 ? (formulas[rowIndex]?.[colIndex] || td.textContent || '') : '';
     updateFillHandle();
 }
 
+// Handle drag selection
+function handleDragSelection(startRow, startCol, endRow, endCol, isCtrl) {
+    console.log(`Dragging selection from (${startRow}, ${startCol}) to (${endRow}, ${endCol})`);
+    
+    if (!isCtrl) {
+        clearSelections();
+    }
 
+    const minRow = Math.min(startRow, endRow);
+    const maxRow = Math.max(startRow, endRow);
+    const minCol = Math.min(startCol, endCol);
+    const maxCol = Math.max(startCol, endCol);
+
+    const newSelectedCells = [];
+    for (let r = minRow; r <= maxRow; r++) {
+        for (let c = minCol; c <= maxCol; c++) {
+            const key = `${r}-${c}`;
+            if (!newSelectedCells.includes(key) && !selectedCells.includes(key)) {
+                newSelectedCells.push(key);
+                const cell = document.querySelector(`td[data-row="${r}"][data-column="${c}"]`);
+                if (cell) cell.classList.add('selected-cell');
+            }
+        }
+    }
+
+    if (isCtrl) {
+        selectedCells = [...new Set([...selectedCells, ...newSelectedCells])];
+    } else {
+        selectedCells = newSelectedCells;
+    }
+
+    // Update formula bar for single cell selection
+    formulaBar.value = selectedCells.length === 1 ? 
+        (formulas[startRow]?.[startCol] || document.querySelector(`td[data-row="${startRow}"][data-column="${startCol}"]`)?.textContent || '') : 
+        '';
+    
+    updateFillHandle();
+}
+
+// Add cell to selection
 function addCellToSelection(td, cellKey) {
     if (!selectedCells.includes(cellKey)) {
         selectedCells.push(cellKey);
         td.classList.add('selected-cell');
     }
 }
-
-
 
 function handleRowSelection(event) {
     const rowNumberTd = event.target;
@@ -1298,7 +1386,6 @@ function handleColumnSelection(event) {
 function clearSelections() {
     console.log('Clearing selections:', { selectedCells, selectedRow, selectedColumn });
 
-    // Clear cell selections
     selectedCells.forEach(cellKey => {
         const [row, col] = cellKey.split('-').map(Number);
         const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
@@ -1308,7 +1395,6 @@ function clearSelections() {
     });
     selectedCells = [];
 
-    // Clear row selection
     if (selectedRow !== null) {
         const row = dataBody.children[selectedRow];
         if (row) {
@@ -1317,7 +1403,6 @@ function clearSelections() {
         selectedRow = null;
     }
 
-    // Clear column selection
     if (selectedColumn !== null) {
         const cells = document.querySelectorAll(`#spreadsheet td[data-column="${selectedColumn}"], #spreadsheet th[data-column="${selectedColumn}"]`);
         cells.forEach(cell => cell.classList.remove('selected-column'));
@@ -1326,8 +1411,8 @@ function clearSelections() {
 
     formulaBar.value = '';
     updateFillHandle();
-    console.log('Selections cleared');
 }
+
 // Update SQL database
 function updateSQLDatabase() {
     if (!SQL || !db) {
@@ -1338,10 +1423,8 @@ function updateSQLDatabase() {
     try {
         db.run('DROP TABLE IF EXISTS data;');
         
-        // Sanitize headers for valid SQL column names
         const sanitizedHeaders = headers.map((h, i) => {
             if (!h || h.trim() === '') return `Column${i + 1}`;
-            // Replace spaces and special characters, avoid reserved words
             return `"${h.replace(/[^a-zA-Z0-9_]/g, '_')}"`;
         });
         
@@ -1349,19 +1432,15 @@ function updateSQLDatabase() {
         console.log('Executing CREATE TABLE:', createTableSQL);
         db.run(createTableSQL);
         
-        // Prepare INSERT statement with correct placeholders
         const placeholders = headers.map(() => '?').join(', ');
         const stmt = db.prepare(`INSERT INTO data VALUES (${placeholders});`);
         
         currentData.forEach((row, rowIndex) => {
-            // Normalize row and escape commas in values
             const normalizedRow = headers.map((_, i) => {
                 let value = row[i] || '';
-                // Convert formula errors or numbers to strings
                 if (typeof value === 'number' || value.startsWith('#')) {
                     return value.toString();
                 }
-                // Escape commas by wrapping in quotes
                 return value.replace(/"/g, '""');
             });
             console.log(`Inserting row ${rowIndex}:`, normalizedRow);
@@ -1646,6 +1725,8 @@ function clearData() {
         }
     }
 }
+
+let isCtrlSelecting = false;
 
 document.addEventListener('mouseup', () => {
     isCtrlSelecting = false;
