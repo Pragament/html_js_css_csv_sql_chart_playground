@@ -64,7 +64,80 @@ let dependencies = {}; // Track dependencies: { 'row-col': ['dep-row-dep-col', .
 let isFilling = false;
 let fillStartCell = null;
 let fillRange = [];
+window.fillRange = fillRange; // Initialize globally
+window.getCellByRef = function(ref) {
+    const match = ref.match(/^([A-Z]+)(\d+)$/);
+    if (!match) {
+        console.error('Invalid cell reference:', ref);
+        return null;
+    }
+    const colStr = match[1];
+    const rowStr = match[2];
+    let col = 0;
+    for (let i = 0; i < colStr.length; i++) {
+        col = col * 26 + (colStr.charCodeAt(i) - 64);
+    }
+    col--; // Convert to 0-based index
+    const row = parseInt(rowStr) - 1; // 0-based index
+    const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
+    console.log(`getCellByRef(${ref}): row=${row}, col=${col}, cell=${!!cell}`);
+    return cell;
+};
 
+window.setCellValue = function(cell, value) {
+    if (!cell || !cell.dataset.row || !cell.dataset.column) {
+        console.error('Invalid cell for setCellValue:', cell);
+        return;
+    }
+    const row = parseInt(cell.dataset.row);
+    const col = parseInt(cell.dataset.column);
+    console.log(`setCellValue: row=${row}, col=${col}, value=${value}`);
+    cell.textContent = value;
+    window.currentData[row] = window.currentData[row] || [];
+    window.currentData[row][col] = value;
+    window.updateSQLDatabase();
+};
+
+window.getCellValue = function(cell) {
+    if (!cell || !cell.dataset.row || !cell.dataset.column) {
+        console.error('Invalid cell for getCellValue:', cell);
+        return null;
+    }
+    const row = parseInt(cell.dataset.row);
+    const col = parseInt(cell.dataset.column);
+    return window.currentData[row]?.[col] || cell.textContent || '';
+};
+
+window.clearHighlights = function() {
+    document.querySelectorAll('.highlighted-cell').forEach(cell => cell.classList.remove('highlighted-cell'));
+};
+
+window.highlightCell = function(cell) {
+    if (cell) {
+        cell.classList.add('highlighted-cell');
+        console.log('Highlighted cell:', cell.dataset.row, cell.dataset.column);
+    }
+};
+window.showNotification = function(message, type = 'info') {
+    console.log('Showing notification:', message, type);
+    const notification = document.getElementById('notification');
+    notification.textContent = message;
+    notification.className = `notification ${type}`;
+    notification.style.display = 'block';
+};
+
+window.generateRandomSheet = function(rows = 4, cols = 5) {
+    console.log('Generating sheet:', rows, cols);
+    const headers = Array.from({ length: cols }, (_, i) => String.fromCharCode(65 + i));
+    const data = Array.from({ length: rows }, () => Array(cols).fill(''));
+    window.headers = headers;
+    window.currentData = data;
+    window.formulas = Array(rows).fill().map(() => Array(cols).fill(undefined));
+    window.dependencies = {};
+    window.renderSpreadsheet();
+    window.updateSQLDatabase();
+    window.updateChartDropdowns();
+};
 // Initialize the app
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM loaded, setting up event listeners');
@@ -1247,35 +1320,43 @@ function applyFill() {
     renderSpreadsheet();
 }
 
-// Handle cell selection
 function handleCellSelection(event) {
-    const td = event.target;
+    if (window.fillSequenceTestRunning && window.fillSequenceTestSelecting) {
+        console.log('handleCellSelection skipped due to fillSequenceTestSelecting');
+        return;
+    }
+    const td = event.target.closest('td[data-row][data-column]');
+    if (!td) {
+        console.error('No valid cell found for click:', event.target);
+        return;
+    }
     const rowIndex = parseInt(td.dataset.row);
     const colIndex = parseInt(td.dataset.column);
-
-    if (isNaN(rowIndex) || isNaN(colIndex)) return;
-
+    if (isNaN(rowIndex) || isNaN(colIndex)) {
+        console.error('Invalid cell coordinates:', td.dataset);
+        return;
+    }
     const cellKey = `${rowIndex}-${colIndex}`;
     event.stopPropagation();
 
-    if (event.ctrlKey && !isDragging) {
+    console.log(`Handling cell selection: row=${rowIndex}, col=${colIndex}, cellKey=${cellKey}`);
+
+    if (event.ctrlKey && event.buttons === 1) {
+        isCtrlSelecting = true;
         addCellToSelection(td, cellKey);
         formulaBar.value = formulas[rowIndex]?.[colIndex] || td.textContent || '';
         updateFillHandle();
         return;
     }
 
-    if (event.shiftKey && selectedCells.length > 0 && !isDragging) {
+    if (event.shiftKey && selectedCells.length > 0) {
         const lastCell = selectedCells[selectedCells.length - 1];
         const [lastRow, lastCol] = lastCell.split('-').map(Number);
-
         const startRow = Math.min(lastRow, rowIndex);
         const endRow = Math.max(lastRow, rowIndex);
         const startCol = Math.min(lastCol, colIndex);
         const endCol = Math.max(lastCol, colIndex);
-
         clearSelections();
-
         for (let r = startRow; r <= endRow; r++) {
             for (let c = startCol; c <= endCol; c++) {
                 const key = `${r}-${c}`;
@@ -1286,14 +1367,25 @@ function handleCellSelection(event) {
                 }
             }
         }
-    } else if (!isDragging) {
+    } else if (event.ctrlKey || event.metaKey) {
+        const index = selectedCells.indexOf(cellKey);
+        if (index === -1) {
+            selectedCells.push(cellKey);
+            td.classList.add('selected-cell');
+        } else {
+            selectedCells.splice(index, 1);
+            td.classList.remove('selected-cell');
+        }
+    } else {
         clearSelections();
         selectedCells = [cellKey];
         td.classList.add('selected-cell');
     }
 
-    formulaBar.value = selectedCells.length === 1 ? (formulas[rowIndex]?.[colIndex] || td.textContent || '') : '';
+    window.selectedCells = selectedCells;
+    formulaBar.value = formulas[rowIndex]?.[colIndex] || td.textContent || '';
     updateFillHandle();
+    console.log('Cell selected:', cellKey, 'selectedCells:', selectedCells);
 }
 
 // Handle drag selection
@@ -1382,8 +1474,11 @@ function handleColumnSelection(event) {
     cells.forEach(cell => cell.classList.add('selected-column'));
     console.log('Selected column:', colIndex, 'Cells affected:', cells.length);
 }
-
 function clearSelections() {
+    if (window.fillSequenceTestRunning && window.fillSequenceTestSelecting) {
+        console.log('clearSelections skipped due to fillSequenceTestSelecting');
+        return;
+    }
     console.log('Clearing selections:', { selectedCells, selectedRow, selectedColumn });
 
     selectedCells.forEach(cellKey => {
@@ -1394,6 +1489,7 @@ function clearSelections() {
         }
     });
     selectedCells = [];
+    window.selectedCells = selectedCells;
 
     if (selectedRow !== null) {
         const row = dataBody.children[selectedRow];
@@ -1411,8 +1507,8 @@ function clearSelections() {
 
     formulaBar.value = '';
     updateFillHandle();
+    console.log('Selections cleared');
 }
-
 // Update SQL database
 function updateSQLDatabase() {
     if (!SQL || !db) {
