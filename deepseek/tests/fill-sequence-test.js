@@ -281,12 +281,12 @@ export default async function fillSequenceTest() {
 
     await new Promise(res => setTimeout(res, 1000)); // Wait before next step
 
-    // step 5
+    // Step 5
     window.clearHighlights();
     window.fillSequenceTestSelecting = true; // Flag to prevent app.js from clearing selections
     window.selectedCells = []; // Initialize empty to allow user selection
     const secondCellRef = { dataset: { row: parseInt(startCell.dataset.row) + 1, column: startCell.dataset.column } };
-    window.showNotification(`Step 5: Select two cells in the same column (e.g., ${toCellRef(startCell)} and ${toCellRef(secondCellRef)}), then drag the fill handle downward from the first cell to your desired range.`, 'info');
+    window.showNotification(`Step 5: Select two cells in the same column (e.g., ${toCellRef(startCell)} and ${toCellRef(secondCellRef)}), then drag the fill handle downward from the second cell to your desired range.`, 'info');
 
     const step5Result = await new Promise(resolve => {
         let capturedFillRange = null;
@@ -343,7 +343,7 @@ export default async function fillSequenceTest() {
                     window.fillSequenceTestSelecting = false;
                     // Update window.selectedCells to ensure consistency
                     window.selectedCells = [`${firstCell.row}-${firstCell.col}`, `${secondCell.row}-${secondCell.col}`];
-                    window.showNotification(`Step 5: Two cells selected (${toCellRef({ dataset: { row: firstCell.row, column: firstCell.col } })} and ${toCellRef({ dataset: { row: secondCell.row, column: secondCell.col } })}), now drag the fill handle downward from the first cell to your desired range.`, 'info');
+                    window.showNotification(`Step 5: Two cells selected (${toCellRef({ dataset: { row: firstCell.row, column: firstCell.col } })} and ${toCellRef({ dataset: { row: secondCell.row, column: secondCell.col } })}), now drag the fill handle downward from the second cell to your desired range.`, 'info');
                     startDragListeners(firstCell.row, firstCell.col, secondCell.row, secondCell.col);
                     return true;
                 } else {
@@ -379,16 +379,16 @@ export default async function fillSequenceTest() {
 
         // Start drag listeners
         async function startDragListeners(startRow, startCol, secondRow, secondCol) {
-            const cell = document.querySelector(`td[data-row="${startRow}"][data-column="${startCol}"]`);
+            const cell = document.querySelector(`td[data-row="${secondRow}"][data-column="${secondCol}"]`);
             if (!cell) {
-                console.error('Step 5: Start cell not found');
-                window.showNotification('Step 5 Failed: Start cell not found.', 'error');
+                console.error('Step 5: Second cell not found');
+                window.showNotification('Step 5 Failed: Second cell not found.', 'error');
                 resolve({ success: false, capturedFillRange: null });
                 return;
             }
             const fillHandle = await waitForFillHandle(cell);
             if (!fillHandle) {
-                console.error('Step 5: Fill handle not found');
+                console.error('Step 5: Fill handle not found on second cell');
                 window.showNotification('Step 5 Failed: Fill handle not found.', 'error');
                 resolve({ success: false, capturedFillRange: null });
                 return;
@@ -448,6 +448,8 @@ export default async function fillSequenceTest() {
                 if (selectionObserver) selectionObserver.disconnect();
                 document.removeEventListener('mousedown', mouseDownHandler, { capture: true });
                 document.removeEventListener('mousemove', mouseMoveHandler, { capture: true });
+                document.removeEventListener('mouseup', mouseUpHandler, { capture: true });
+                document.removeEventListener('dblclick', doubleClickHandler, { capture: true });
                 window.fillSequenceTestSelecting = false;
             }
 
@@ -581,8 +583,6 @@ export default async function fillSequenceTest() {
     }
 
     const [secondRow, secondCol] = secondCellKey.split('-').map(Number);
-
-
 
     const secondCell = document.querySelector(`td[data-row="${secondRow}"][data-column="${secondCol}"]`);
     const secondValue = secondCell ? String(window.getCellValue(secondCell) || '') : initialValue;
