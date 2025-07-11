@@ -986,11 +986,44 @@ function renderSpreadsheet() {
 }
 
 // Update fill handle visibility
+// Update fill handle visibility
 function updateFillHandle() {
     document.querySelectorAll('.fill-handle').forEach(handle => handle.remove());
     
-    if (selectedCells.length === 1 || selectedCells.length === 2) {
-        const [row, col] = selectedCells[0].split('-').map(Number);
+    if (selectedCells.length >= 1) {
+        let targetCellKey;
+        
+        // Convert selectedCells to array of { row, col }
+        const cells = selectedCells.map(key => {
+            const [row, col] = key.split('-').map(Number);
+            return { row, col };
+        });
+        
+        // Determine if the selection is vertical (same column) or horizontal (same row)
+        const isVertical = cells.every(cell => cell.col === cells[0].col);
+        const isHorizontal = cells.every(cell => cell.row === cells[0].row);
+        
+        if (selectedCells.length === 1) {
+            // Single cell case
+            targetCellKey = selectedCells[0];
+        } else if (selectedCells.length === 2 && isVertical) {
+            // Two vertical cells: select the cell with the higher row index (bottom cell)
+            const [cell1, cell2] = cells;
+            targetCellKey = cell1.row > cell2.row ? `${cell1.row}-${cell1.col}` : `${cell2.row}-${cell2.col}`;
+        } else if (isVertical) {
+            // Multiple vertical cells: select the cell with the highest row index (bottom cell)
+            const maxRowCell = cells.reduce((max, cell) => cell.row > max.row ? cell : max, cells[0]);
+            targetCellKey = `${maxRowCell.row}-${maxRowCell.col}`;
+        } else if (isHorizontal) {
+            // Multiple horizontal cells: select the cell with the highest column index (rightmost cell)
+            const maxColCell = cells.reduce((max, cell) => cell.col > max.col ? cell : max, cells[0]);
+            targetCellKey = `${maxColCell.row}-${maxColCell.col}`;
+        } else {
+            // Non-linear selection: fallback to the last cell in selectedCells
+            targetCellKey = selectedCells[selectedCells.length - 1];
+        }
+        
+        const [row, col] = targetCellKey.split('-').map(Number);
         const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
         if (cell) {
             const handle = document.createElement('div');
@@ -1106,9 +1139,21 @@ function endFillDrag(event) {
     
     if (fillRange.length > 0) {
         applyFill();
+        
+        // Update selectedCells to include the filled range
+        clearSelections();
+        selectedCells = fillRange.map(([row, col]) => `${row}-${col}`);
+        selectedCells.forEach(key => {
+            const [row, col] = key.split('-').map(Number);
+            const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
+            if (cell) cell.classList.add('selected-cell');
+        });
+        
+        // Update fill handle to appear on the last cell (bottom-right)
+        updateFillHandle();
     }
     
-    console.log('Fill drag ended, range:', fillRange);
+    console.log('Fill drag ended, range:', fillRange, 'new selectedCells:', selectedCells);
 }
 
 // Get fill range coordinates
