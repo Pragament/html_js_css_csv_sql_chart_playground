@@ -1,68 +1,97 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Spreadsheet App</title>
-    <link rel="stylesheet" href="styles.css">
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/sql-wasm.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spreadsheet App</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/sql-wasm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+  <script src="https://unpkg.com/mocha@10.2.0/mocha.js"></script>
+<script src="https://unpkg.com/chai@4.3.7/chai.js"></script>
 </head>
 <body>
-    <div class="container">
-        <div class="sidebar">
-            <h2>Sample CSV Files</h2>
-            <ul id="sample-files">
-                <li data-file="sales">Sales Data</li>
-                <li data-file="employees">Employee Data</li>
-                <li data-file="inventory">Inventory Data</li>
-            </ul>
-        </div>
-        <div class="main-content">
-            <div class="toolbar">
-                <button id="import-btn">Import File</button>
-                <input type="file" id="file-input" accept=".csv,.xlsx,.xls" style="display: none;">
-                <button id="export-csv">Export CSV</button>
-                <button id="export-excel">Export Excel</button>
-                <button id="add-column">Add Column</button>
-                <button id="add-row">Add Row</button>
-                <button id="clear-data">Clear Data</button>
-                <input id="formula-bar" type="text" placeholder="Formula (e.g., =SUM(A1:A5))">
-            </div>
-            <div class="tabs">
-                <button class="tab-button active" data-tab="spreadsheet-tab">Spreadsheet</button>
-                <button class="tab-button" data-tab="sql-tab">SQL Query</button>
-                <button class="tab-button" data-tab="chart-tab">Charts</button>
-            </div>
-            <div class="tab-content active" id="spreadsheet-tab">
-                <div id="loading" style="display: none;">Loading...</div>
-                <table id="spreadsheet">
-                    <thead>
-                        <tr id="header-row"></tr>
-                    </thead>
-                    <tbody id="data-body"></tbody>
-                </table>
-            </div>
-            <div class="tab-content" id="sql-tab">
-                <textarea id="sql-query" rows="10" placeholder="Enter SQL query"></textarea>
-                <button id="run-sql" disabled>Run SQL</button>
-            </div>
-            <div class="tab-content" id="chart-tab">
-                <div class="chart-controls">
-                    <select id="chart-type">
-                        <option value="bar">Bar</option>
-                        <option value="line">Line</option>
-                        <option value="pie">Pie</option>
-                    </select>
-                    <select id="x-axis"></select>
-                    <select id="y-axis"></select>
-                    <button id="create-chart">Create Chart</button>
-                </div>
-                <div id="chart-list"></div>
-            </div>
-        </div>
+  <div class="container">
+    <div class="sidebar">
+      <h2>Sample CSV Files</h2>
+      <ul id="sample-files">
+        <li data-file="sales">Sales Data</li>
+        <li data-file="employees">Employee Data</li>
+        <li data-file="inventory">Inventory Data</li>
+      </ul>
+      <h2>Tests</h2>
+      <ul id="test-list"></ul>
     </div>
-    <script src="app.js"></script>
+
+    <div class="main-content">
+      <div class="toolbar">
+        <button id="import-btn">Import File</button>
+        <input type="file" id="file-input" accept=".csv,.xlsx,.xls" style="display: none;">
+        <button id="export-csv">Export CSV</button>
+        <button id="export-excel">Export Excel</button>
+        <button id="add-column">Add Column</button>
+        <button id="add-row">Add Row</button>
+        <button id="clear-data">Clear Data</button>
+        <input id="formula-bar" type="text" placeholder="Formula (e.g., =SUM(A1:A5))">
+      </div>
+
+      <div class="tabs">
+        <button class="tab-button active" data-tab="spreadsheet-tab">Spreadsheet</button>
+        <button class="tab-button" data-tab="sql-tab">SQL Query</button>
+        <button class="tab-button" data-tab="chart-tab">Charts</button>
+      </div>
+
+      <div class="tab-content active" id="spreadsheet-tab">
+        <!-- ✅ Notification bar placed here above table -->
+        <div id="notification" class="notification"></div>
+
+        <div id="loading" style="display: none;">Loading...</div>
+        <table id="spreadsheet">
+          <thead>
+            <tr id="header-row"></tr>
+          </thead>
+          <tbody id="data-body"></tbody>
+        </table>
+      </div>
+
+      <div class="tab-content" id="sql-tab">
+        <textarea id="sql-query" rows="10" placeholder="Enter SQL query"></textarea>
+        <button id="run-sql" disabled>Run SQL</button>
+      </div>
+
+      <div class="tab-content" id="chart-tab">
+        <div class="chart-controls">
+          <select id="chart-type">
+            <option value="bar">Bar</option>
+            <option value="line">Line</option>
+            <option value="pie">Pie</option>
+          </select>
+          <select id="x-axis"></select>
+          <select id="y-axis"></select>
+          <button id="create-chart">Create Chart</button>
+        </div>
+        <div id="chart-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ✅ Mocha & Chai setup -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mocha/mocha.css" />
+  <div id="mocha" style="background:#b33333; color:#222; margin:16px; padding:8px; border-radius:6px;"></div>
+  <script src="https://cdn.jsdelivr.net/npm/mocha/mocha.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chai/chai.js"></script>
+  <script>
+    (function waitForChai() {
+      if (window.chai && window.mocha) {
+        mocha.setup('bdd');
+        window.expect = chai.expect;
+      } else {
+        setTimeout(waitForChai, 30);
+      }
+    })();
+  </script>
+  <script src="app.js"></script>
+  <script src="user-test.js"></script>
 </body>
 </html>

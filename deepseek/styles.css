@@ -178,3 +178,23 @@
     font-size: 18px;
     color: #333;
 }
+.notification {
+  background: #007bff;
+  color: white;
+  padding: 10px;
+  text-align: center;
+  font-weight: bold;
+  display: none; /* Hidden by default, shown via JS */
+}
+
+.notification.info {
+  background: #28a745;
+}
+
+.notification.success {
+  background: #28a745;
+}
+
+.notification.error {
+  background: #dc3545;
+}
