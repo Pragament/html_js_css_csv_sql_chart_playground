@@ -5,6 +5,7 @@
     const testModules = [
         { id: 'fill-sequence-test', name: 'Fill Sequence Test', file: 'tests/fill-sequence-test.js' },
         { id: 'sum-function-test', name: 'Sum Function Test', file: 'tests/sum-function-test.js' },
+        { id: 'double-click-fill-test', name: 'Double Click Fill Test', file: 'tests/double-click-fill-test.js' },
     ];
 
     const loadedTests = [];
