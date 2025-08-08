@@ -11,6 +11,36 @@
   <script src="https://unpkg.com/mocha@10.2.0/mocha.js"></script>
   <script src="https://unpkg.com/chai@4.3.7/chai.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+
+  <style>
+    /* Mobile-first stacked layout */
+    .sql-layout, .chart-layout {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* Desktop rearrangements */
+    @media (min-width: 992px) {
+      /* SQL tab still column (query then table) */
+      .sql-layout {
+        flex-direction: column;
+      }
+
+      /* Chart tab: side-by-side */
+      .chart-layout {
+        flex-direction: row;
+        align-items: flex-start;
+      }
+      .chart-controls {
+        flex: 1;
+        max-width: 300px;
+      }
+      #chart-list {
+        flex: 3;
+      }
+    }
+  </style>
 </head>
 <body>
   <div class="container">
@@ -43,6 +73,7 @@
         <button class="tab-button" data-tab="chart-tab">Charts</button>
       </div>
 
+      <!-- Spreadsheet Tab -->
       <div class="tab-content active" id="spreadsheet-tab">
         <div id="notification" class="notification"></div>
         <div id="loading" style="display: none;">Loading...</div>
@@ -54,41 +85,45 @@
         </table>
       </div>
 
-     <div class="tab-content" id="sql-tab">
-  <div class="sql-query-box">
-    <textarea id="sql-query" rows="10" placeholder="Enter SQL query"></textarea>
-    <button id="run-sql" disabled>Run SQL</button>
-  </div>
-  <div class="sql-content-flex">
-    <div class="sql-table-container">
-      <table id="spreadsheet">
-        <thead>
-          <tr id="header-row"></tr>
-        </thead>
-        <tbody id="data-body"></tbody>
-      </table>
-    </div>
-    <div class="sql-chart-container">
-      <div class="chart-controls">
-        <select id="chart-type">
-          <option value="bar">Bar</option>
-          <option value="line">Line</option>
-          <option value="pie">Pie</option>
-        </select>
-        <select id="x-axis"></select>
-        <select id="y-axis"></select>
-        <button id="create-chart">Create Chart</button>
+      <!-- SQL Tab -->
+      <div class="tab-content" id="sql-tab">
+        <div class="sql-layout">
+          <div class="sql-query-box">
+            <textarea id="sql-query" rows="10" placeholder="Enter SQL query"></textarea>
+            <button id="run-sql" disabled>Run SQL</button>
+          </div>
+          <div class="sql-results">
+            <!-- We'll reuse spreadsheet table here if needed -->
+            <table id="sql-table">
+              <thead></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
       </div>
-      <div id="chart-list"></div>
+
+      <!-- Chart Tab -->
+      <div class="tab-content" id="chart-tab">
+        <div class="chart-layout">
+          <div class="chart-controls">
+            <select id="chart-type">
+              <option value="bar">Bar</option>
+              <option value="line">Line</option>
+              <option value="pie">Pie</option>
+            </select>
+            <select id="x-axis"></select>
+            <select id="y-axis"></select>
+            <button id="create-chart">Create Chart</button>
+          </div>
+          <div id="chart-list"></div>
+        </div>
+      </div>
     </div>
   </div>
-</div>
 
   <!-- Mocha & Chai setup -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mocha/mocha.css" />
   <div id="mocha" style="background:#b33333; color:#222; margin:16px; padding:8px; border-radius:6px;"></div>
-  <script src="https://cdn.jsdelivr.net/npm/mocha/mocha.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chai/chai.js"></script>
   <script>
     (function waitForChai() {
       if (window.chai && window.mocha) {
@@ -103,48 +138,35 @@
   <script src="app.js"></script>
   <script src="user-test.js"></script>
 
-  <!-- ✅ Excel-like Formula Insertion + Evaluation on Enter -->
+  <!-- Excel-like Formula Handling -->
   <script>
     window.addEventListener('DOMContentLoaded', () => {
-      // ✅ Click on cell inserts reference into formula bar at cursor position
       document.addEventListener('click', (event) => {
         const cell = event.target.closest('td[data-row][data-column]');
         if (!cell) return;
-
         const formulaBar = document.querySelector('#formula-bar');
         if (!formulaBar || document.activeElement !== formulaBar) return;
-
         const row = parseInt(cell.getAttribute('data-row')) + 1;
         const col = parseInt(cell.getAttribute('data-column'));
         const colLetter = String.fromCharCode(65 + col);
         const cellRef = `${colLetter}${row}`;
-
-        // ✅ Insert ref at cursor position, not overwrite
         const cursorPos = formulaBar.selectionStart || formulaBar.value.length;
         const before = formulaBar.value.slice(0, cursorPos);
         const after = formulaBar.value.slice(cursorPos);
         formulaBar.value = before + cellRef + after;
-
         formulaBar.dispatchEvent(new Event('input', { bubbles: true }));
-
-        // ✅ Keep cursor after inserted ref
         formulaBar.focus();
         formulaBar.setSelectionRange(cursorPos + cellRef.length, cursorPos + cellRef.length);
       });
 
-      // ✅ Press Enter to evaluate =B2+C2 style formulas
       const formulaBar = document.getElementById('formula-bar');
       formulaBar.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && window.selectedCells?.length > 0) {
           const [rowCol] = window.selectedCells;
           const [row, col] = rowCol.split('-').map(Number);
           const formula = formulaBar.value;
-
-          // Store formula
           window.formulas[row][col] = formula;
           window.currentData[row][col] = formula;
-
-          // Evaluate simple =B2+C2 formulas
           if (formula.startsWith('=')) {
             const match = formula.match(/^=([A-Z]+\d+)\+([A-Z]+\d+)$/i);
             if (match) {
@@ -159,8 +181,6 @@
               return;
             }
           }
-
-          // If not valid formula, show as text
           const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
           if (cell) cell.textContent = formula;
           window.updateCellValue(row, col, formula);
