@@ -9,7 +9,7 @@
   <script src="https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/sql-wasm.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
   <script src="https://unpkg.com/mocha@10.2.0/mocha.js"></script>
-<script src="https://unpkg.com/chai@4.3.7/chai.js"></script>
+  <script src="https://unpkg.com/chai@4.3.7/chai.js"></script>
 </head>
 <body>
   <div class="container">
@@ -43,9 +43,7 @@
       </div>
 
       <div class="tab-content active" id="spreadsheet-tab">
-        <!-- ✅ Notification bar placed here above table -->
         <div id="notification" class="notification"></div>
-
         <div id="loading" style="display: none;">Loading...</div>
         <table id="spreadsheet">
           <thead>
@@ -76,7 +74,7 @@
     </div>
   </div>
 
-  <!-- ✅ Mocha & Chai setup -->
+  <!-- Mocha & Chai setup -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mocha/mocha.css" />
   <div id="mocha" style="background:#b33333; color:#222; margin:16px; padding:8px; border-radius:6px;"></div>
   <script src="https://cdn.jsdelivr.net/npm/mocha/mocha.js"></script>
@@ -91,7 +89,82 @@
       }
     })();
   </script>
+
   <script src="app.js"></script>
   <script src="user-test.js"></script>
+
+  <!-- ✅ Excel-like Formula Insertion + Evaluation on Enter -->
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      // ✅ Click on cell inserts reference into formula bar at cursor position
+      document.addEventListener('click', (event) => {
+        const cell = event.target.closest('td[data-row][data-column]');
+        if (!cell) return;
+
+        const formulaBar = document.querySelector('#formula-bar');
+        if (!formulaBar || document.activeElement !== formulaBar) return;
+
+        const row = parseInt(cell.getAttribute('data-row')) + 1;
+        const col = parseInt(cell.getAttribute('data-column'));
+        const colLetter = String.fromCharCode(65 + col);
+        const cellRef = `${colLetter}${row}`;
+
+        // ✅ Insert ref at cursor position, not overwrite
+        const cursorPos = formulaBar.selectionStart || formulaBar.value.length;
+        const before = formulaBar.value.slice(0, cursorPos);
+        const after = formulaBar.value.slice(cursorPos);
+        formulaBar.value = before + cellRef + after;
+
+        formulaBar.dispatchEvent(new Event('input', { bubbles: true }));
+
+        // ✅ Keep cursor after inserted ref
+        formulaBar.focus();
+        formulaBar.setSelectionRange(cursorPos + cellRef.length, cursorPos + cellRef.length);
+      });
+
+      // ✅ Press Enter to evaluate =B2+C2 style formulas
+      const formulaBar = document.getElementById('formula-bar');
+      formulaBar.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && window.selectedCells?.length > 0) {
+          const [rowCol] = window.selectedCells;
+          const [row, col] = rowCol.split('-').map(Number);
+          const formula = formulaBar.value;
+
+          // Store formula
+          window.formulas[row][col] = formula;
+          window.currentData[row][col] = formula;
+
+          // Evaluate simple =B2+C2 formulas
+          if (formula.startsWith('=')) {
+            const match = formula.match(/^=([A-Z]+\d+)\+([A-Z]+\d+)$/i);
+            if (match) {
+              const val1 = getCellNumericValue(match[1]);
+              const val2 = getCellNumericValue(match[2]);
+              const result = val1 + val2;
+              window.currentData[row][col] = result.toString();
+              const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
+              if (cell) cell.textContent = result.toString();
+              window.updateCellValue(row, col, result.toString());
+              window.renderSpreadsheet();
+              return;
+            }
+          }
+
+          // If not valid formula, show as text
+          const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
+          if (cell) cell.textContent = formula;
+          window.updateCellValue(row, col, formula);
+          window.renderSpreadsheet();
+        }
+      });
+
+      function getCellNumericValue(ref) {
+        const col = ref.charCodeAt(0) - 65;
+        const row = parseInt(ref.slice(1), 10) - 1;
+        const val = window.currentData?.[row]?.[col];
+        return parseFloat(val) || 0;
+      }
+    });
+  </script>
 </body>
 </html>
