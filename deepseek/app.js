@@ -1660,33 +1660,48 @@ function runSQL() {
 }
 
 // Create chart
+// ...existing code...
 function createChart() {
     console.log('Creating chart');
     if (headers.length === 0 || currentData.length === 0) {
         alert('No data available to create chart');
         return;
     }
-    
-    const chartType = chartTypeSelect.value;
-    const xAxis = xAxisSelect.value;
-    const yAxis = yAxisSelect.value;
-    
-    const xIndex = headers.indexOf(xAxis);
-    const yIndex = headers.indexOf(yAxis);
-    
+
+    let chartType = chartTypeSelect.value;
+    let xAxis = xAxisSelect.value;
+    let yAxis = yAxisSelect.value;
+
+    let xIndex = headers.indexOf(xAxis);
+    let yIndex = headers.indexOf(yAxis);
+
     if (xIndex === -1 || yIndex === -1) {
         alert('Invalid axis selection');
         return;
     }
-    
-    const dataValues = currentData.map(row => parseFloat(row[yIndex]));
-    if (dataValues.some(isNaN)) {
-        alert('Y-axis must contain numeric values.');
-        return;
+
+    // Check if Y-axis is numeric
+    let yValues = currentData.map(row => row[yIndex]);
+    let yIsNumeric = yValues.every(val => !isNaN(parseFloat(val)));
+
+    if (!yIsNumeric) {
+        // If not numeric, swap axes and use horizontal bar chart
+        [xAxis, yAxis] = [yAxis, xAxis];
+        [xIndex, yIndex] = [yIndex, xIndex];
+        yValues = currentData.map(row => row[yIndex]);
+        chartType = 'bar'; // Chart.js v3+ uses 'bar' with indexAxis option for horizontal
+        var indexAxis = 'y';
+    } else {
+        var indexAxis = 'x';
     }
-    
+
+    // Now, x-axis is always categories, y-axis is always numeric
     const labels = currentData.map(row => row[xIndex]);
-    
+    const dataValues = currentData.map(row => {
+        const val = row[yIndex];
+        return isNaN(parseFloat(val)) ? 0 : parseFloat(val);
+    });
+
     const config = {
         type: chartType,
         data: {
@@ -1701,6 +1716,7 @@ function createChart() {
         },
         options: {
             responsive: true,
+            indexAxis: indexAxis,
             plugins: {
                 title: {
                     display: true,
@@ -1709,6 +1725,10 @@ function createChart() {
             }
         }
     };
+
+    // ...existing code for chart creation...
+
+// ...existing code...
     
     const chartId = `chart-${Date.now()}`;
     const chartItem = document.createElement('div');
