@@ -1,59 +1,180 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SheetJS Demo with Autofill</title>
-  <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    #drop { border: 2px dashed #bbb; padding: 25px; text-align: center; margin-bottom: 20px; }
-    #drop:hover { background-color: #f5f5f5; }
-    #html { overflow: auto; height: 400px; border: 1px solid #ddd; padding: 10px; }
-    table { border-collapse: collapse; width: 100%; }
-    td { border: 1px solid #ddd; padding: 8px; min-width: 100px; }
-    th { border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2; }
-    .selected { background-color: #d4e6f1; }
-    .autofill-handle {
-      position: absolute;
-      width: 10px;
-      height: 10px;
-      background-color: #4CAF50;
-      bottom: 2px;
-      right: 2px;
-      cursor: crosshair;
-      border-radius: 50%;
-    }
-    .autofill-preview {
-      background-color: #e6f7ff;
-    }
-    #autofill-options {
-      margin: 10px 0;
-      padding: 10px;
-      background-color: #f8f9fa;
-      border: 1px solid #ddd;
-      display: none;
-    }
-    button {
-      padding: 5px 10px;
-      margin-right: 5px;
-      cursor: pointer;
-    }
-  </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spreadsheet App</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/sql-wasm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+  <script src="https://unpkg.com/mocha@10.2.0/mocha.js"></script>
+  <script src="https://unpkg.com/chai@4.3.7/chai.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
 </head>
 <body>
-  <h1>SheetJS Demo with Autofill</h1>
-  <div id="drop">Drop Excel file here</div>
-  <input type="file" id="file" />
-  <div id="autofill-options">
-    <h3>Autofill Options</h3>
-    <p>Detected pattern: <span id="pattern-info">None</span></p>
-    <button id="fill-series">Fill Series</button>
-    <button id="fill-formulas">Fill Formulas</button>
-    <button id="fill-copy">Copy Values</button>
-    <button id="cancel-autofill">Cancel</button>
+  <div class="container">
+    <div class="sidebar">
+      <h2>Sample CSV Files</h2>
+      <ul id="sample-files">
+        <li data-file="sales">Sales Data</li>
+        <li data-file="employees">Employee Data</li>
+        <li data-file="inventory">Inventory Data</li>
+      </ul>
+      <h2>Tests</h2>
+      <ul id="test-list"></ul>
+    </div>
+
+    <div class="main-content">
+      <div class="toolbar">
+        <button id="import-btn">Import File</button>
+        <input type="file" id="file-input" accept=".csv,.xlsx,.xls" style="display: none;">
+        <button id="export-csv">Export CSV</button>
+        <button id="export-excel">Export Excel</button>
+        <button id="add-column">Add Column</button>
+        <button id="add-row">Add Row</button>
+        <button id="clear-data">Clear Data</button>
+        <input id="formula-bar" type="text" placeholder="Formula (e.g., =SUM(A1:A5))">
+      </div>
+
+      <div class="tabs">
+        <button class="tab-button active" data-tab="spreadsheet-tab">Spreadsheet</button>
+        <button class="tab-button" data-tab="sql-tab">SQL Query</button>
+        <button class="tab-button" data-tab="chart-tab">Charts</button>
+      </div>
+
+      <div class="tab-content active" id="spreadsheet-tab">
+        <div id="notification" class="notification"></div>
+        <div id="loading" style="display: none;">Loading...</div>
+        <table id="spreadsheet">
+          <thead>
+            <tr id="header-row"></tr>
+          </thead>
+          <tbody id="data-body"></tbody>
+        </table>
+      </div>
+
+     <div class="tab-content" id="sql-tab">
+  <div class="sql-query-box">
+    <textarea id="sql-query" rows="10" placeholder="Enter SQL query"></textarea>
+    <button id="run-sql" disabled>Run SQL</button>
   </div>
-  <div id="html"></div>
+  <div class="sql-content-flex">
+    <div class="sql-table-container">
+      <table id="spreadsheet">
+        <thead>
+          <tr id="header-row"></tr>
+        </thead>
+        <tbody id="data-body"></tbody>
+      </table>
+    </div>
+    <div class="sql-chart-container">
+      <div class="chart-controls">
+        <select id="chart-type">
+          <option value="bar">Bar</option>
+          <option value="line">Line</option>
+          <option value="pie">Pie</option>
+        </select>
+        <select id="x-axis"></select>
+        <select id="y-axis"></select>
+        <button id="create-chart">Create Chart</button>
+      </div>
+      <div id="chart-list"></div>
+    </div>
+  </div>
+</div>
+
+  <!-- Mocha & Chai setup -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mocha/mocha.css" />
+  <div id="mocha" style="background:#b33333; color:#222; margin:16px; padding:8px; border-radius:6px;"></div>
+  <script src="https://cdn.jsdelivr.net/npm/mocha/mocha.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chai/chai.js"></script>
+  <script>
+    (function waitForChai() {
+      if (window.chai && window.mocha) {
+        mocha.setup('bdd');
+        window.expect = chai.expect;
+      } else {
+        setTimeout(waitForChai, 30);
+      }
+    })();
+  </script>
+
   <script src="app.js"></script>
+  <script src="user-test.js"></script>
+
+  <!-- ✅ Excel-like Formula Insertion + Evaluation on Enter -->
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      // ✅ Click on cell inserts reference into formula bar at cursor position
+      document.addEventListener('click', (event) => {
+        const cell = event.target.closest('td[data-row][data-column]');
+        if (!cell) return;
+
+        const formulaBar = document.querySelector('#formula-bar');
+        if (!formulaBar || document.activeElement !== formulaBar) return;
+
+        const row = parseInt(cell.getAttribute('data-row')) + 1;
+        const col = parseInt(cell.getAttribute('data-column'));
+        const colLetter = String.fromCharCode(65 + col);
+        const cellRef = `${colLetter}${row}`;
+
+        // ✅ Insert ref at cursor position, not overwrite
+        const cursorPos = formulaBar.selectionStart || formulaBar.value.length;
+        const before = formulaBar.value.slice(0, cursorPos);
+        const after = formulaBar.value.slice(cursorPos);
+        formulaBar.value = before + cellRef + after;
+
+        formulaBar.dispatchEvent(new Event('input', { bubbles: true }));
+
+        // ✅ Keep cursor after inserted ref
+        formulaBar.focus();
+        formulaBar.setSelectionRange(cursorPos + cellRef.length, cursorPos + cellRef.length);
+      });
+
+      // ✅ Press Enter to evaluate =B2+C2 style formulas
+      const formulaBar = document.getElementById('formula-bar');
+      formulaBar.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && window.selectedCells?.length > 0) {
+          const [rowCol] = window.selectedCells;
+          const [row, col] = rowCol.split('-').map(Number);
+          const formula = formulaBar.value;
+
+          // Store formula
+          window.formulas[row][col] = formula;
+          window.currentData[row][col] = formula;
+
+          // Evaluate simple =B2+C2 formulas
+          if (formula.startsWith('=')) {
+            const match = formula.match(/^=([A-Z]+\d+)\+([A-Z]+\d+)$/i);
+            if (match) {
+              const val1 = getCellNumericValue(match[1]);
+              const val2 = getCellNumericValue(match[2]);
+              const result = val1 + val2;
+              window.currentData[row][col] = result.toString();
+              const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
+              if (cell) cell.textContent = result.toString();
+              window.updateCellValue(row, col, result.toString());
+              window.renderSpreadsheet();
+              return;
+            }
+          }
+
+          // If not valid formula, show as text
+          const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
+          if (cell) cell.textContent = formula;
+          window.updateCellValue(row, col, formula);
+          window.renderSpreadsheet();
+        }
+      });
+
+      function getCellNumericValue(ref) {
+        const col = ref.charCodeAt(0) - 65;
+        const row = parseInt(ref.slice(1), 10) - 1;
+        const val = window.currentData?.[row]?.[col];
+        return parseFloat(val) || 0;
+      }
+    });
+  </script>
 </body>
 </html>

@@ -2,42 +2,33 @@
     display: flex;
     height: 100vh;
     font-family: Arial, sans-serif;
-    background-color: #fafafa;
 }
 
-/* Sidebar */
 .sidebar {
-    width: 220px;
+    width: 200px;
     background-color: #f4f4f4;
     padding: 20px;
     overflow-y: auto;
-    border-right: 1px solid #ddd;
 }
 
 .sidebar h2 {
     margin-top: 0;
-    font-size: 16px;
-    color: #333;
 }
 
 .sidebar ul {
     list-style: none;
     padding: 0;
-    margin: 0;
 }
 
 .sidebar li {
-    padding: 8px 12px;
+    padding: 10px;
     cursor: pointer;
-    transition: background 0.2s ease;
-    border-radius: 4px;
 }
 
 .sidebar li:hover {
     background-color: #e0e0e0;
 }
 
-/* Main content */
 .main-content {
     flex: 1;
     padding: 20px;
@@ -45,38 +36,24 @@
     flex-direction: column;
 }
 
-/* Toolbar */
 .toolbar {
     margin-bottom: 10px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
 }
 
-.toolbar button,
-.toolbar input {
+.toolbar button, .toolbar input {
+    margin-right: 10px;
     padding: 8px 12px;
     font-size: 14px;
-    border: 1px solid #ccc;
-    background: #fff;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.2s ease, box-shadow 0.2s ease;
-}
-
-.toolbar button:hover {
-    background: #f5f5f5;
 }
 
 #formula-bar {
-    width: 250px;
+    width: 200px;
     padding: 8px;
     border: 1px solid #ccc;
     border-radius: 4px;
     font-size: 14px;
 }
 
-/* Tabs */
 .tabs {
     display: flex;
     margin-bottom: 10px;
@@ -87,16 +64,11 @@
     border: none;
     background: #e0e0e0;
     cursor: pointer;
-    transition: background 0.2s ease;
 }
 
 .tab-button.active {
     background: #4CAF50;
     color: white;
-}
-
-.tab-button:hover:not(.active) {
-    background: #d5d5d5;
 }
 
 .tab-content {
@@ -108,26 +80,22 @@
     flex: 1;
 }
 
-/* Spreadsheet */
 #spreadsheet {
     border-collapse: collapse;
     width: 100%;
     background: white;
     position: relative;
-    font-size: 14px;
 }
 
-#spreadsheet th,
-#spreadsheet td {
+#spreadsheet th, #spreadsheet td {
     border: 1px solid #ddd;
-    padding: 6px 8px;
+    padding: 8px;
     text-align: left;
     min-width: 100px;
-    position: relative;
 }
 
 #spreadsheet th {
-    background-color: #f9f9f9;
+    background-color: #f2f2f2;
     font-weight: bold;
 }
 
@@ -147,37 +115,25 @@
     background: #fff;
 }
 
-/* SQL Query */
 #sql-query {
     width: 100%;
     height: 200px;
     margin-bottom: 10px;
-    font-family: monospace;
-    padding: 8px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
 }
 
-/* Charts */
 .chart-controls {
     margin-bottom: 20px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
 }
 
-.chart-controls select,
-.chart-controls button {
+.chart-controls select, .chart-controls button {
+    margin-right: 10px;
     padding: 8px;
-    font-size: 14px;
 }
 
 .chart-item {
     margin-bottom: 20px;
     border: 1px solid #ddd;
     padding: 10px;
-    border-radius: 6px;
-    background: #fff;
 }
 
 .chart-item-actions button {
@@ -185,10 +141,10 @@
     padding: 5px 10px;
 }
 
-/* Selection */
 .selected-cell {
     background-color: #e0f7fa;
     border: 2px solid #4CAF50 !important;
+    position: relative;
 }
 
 .selected-row {
@@ -214,7 +170,6 @@
     background: rgba(76, 175, 80, 0.2);
 }
 
-/* Loading */
 #loading {
     position: absolute;
     top: 50%;
@@ -223,41 +178,52 @@
     font-size: 18px;
     color: #333;
 }
-
-/* Notifications */
 .notification {
-    background: #007bff;
-    color: white;
-    padding: 10px;
-    text-align: center;
-    font-weight: bold;
-    display: none; /* Hidden by default, shown via JS */
-    border-radius: 4px;
+  background: #007bff;
+  color: white;
+  padding: 10px;
+  text-align: center;
+  font-weight: bold;
+  display: none; /* Hidden by default, shown via JS */
 }
 
 .notification.info {
-    background: #17a2b8;
+  background: #28a745;
 }
 
 .notification.success {
-    background: #28a745;
+  background: #28a745;
 }
 
 .notification.error {
-    background: #dc3545;
+  background: #dc3545;
 }
 
-/* Responsive */
-@media (max-width: 768px) {
-    .container {
-        flex-direction: column;
-    }
-    .sidebar {
-        width: 100%;
-        border-right: none;
-        border-bottom: 1px solid #ddd;
-    }
-    #formula-bar {
-        width: 100%;
-    }
+/* Responsive SQL tab layout */
+.sql-content-flex {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sql-table-container,
+.sql-chart-container {
+  width: 100%;
+}
+
+@media (min-width: 900px) {
+  .sql-content-flex {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+  .sql-table-container {
+    width: 60%;
+  }
+  .sql-chart-container {
+    width: 40%;
+  }
+}
+
+.sql-query-box {
+  margin-bottom: 16px;
 }
