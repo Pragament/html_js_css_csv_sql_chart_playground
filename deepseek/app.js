@@ -1701,30 +1701,67 @@ function createChart() {
         const val = row[yIndex];
         return isNaN(parseFloat(val)) ? 0 : parseFloat(val);
     });
+// ...existing code...
 
-    const config = {
-        type: chartType,
-        data: {
-            labels: labels,
-            datasets: [{
-                label: `${yAxis} by ${xAxis}`,
-                data: dataValues,
-                backgroundColor: getChartColors(chartType, dataValues.length),
-                borderColor: '#4CAF50',
-                borderWidth: 1
-            }]
+// Register the plugin globally (do this once, before creating any charts)
+if (window.Chart && window.Chart.register && window.ChartDataLabels) {
+    Chart.register(window.ChartDataLabels);
+}
+
+// In your chart config, add:
+// ...existing code...
+const config = {
+    type: chartType,
+    data: {
+        labels: labels,
+        datasets: [{
+            label: `${yAxis} by ${xAxis}`,
+            data: dataValues,
+            backgroundColor: getChartColors(chartType, dataValues.length),
+            borderColor: '#4CAF50',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        indexAxis: indexAxis,
+        plugins: {
+            title: {
+                display: true,
+                text: `${yAxis} by ${xAxis}`
+            },
+            datalabels: {
+                anchor: 'end',
+                align: 'end',
+                color: '#673ab7',
+                font: {
+                    weight: 'bold',
+                    size: 14
+                },
+                formatter: function(value) {
+                    return value;
+                }
+            }
         },
-        options: {
-            responsive: true,
-            indexAxis: indexAxis,
-            plugins: {
+        scales: {
+            x: {
                 title: {
                     display: true,
-                    text: `${yAxis} by ${xAxis}`
+                    text: indexAxis === 'y' ? yAxis : xAxis // Show correct axis label
+                }
+            },
+            y: {
+                title: {
+                    display: true,
+                    text: indexAxis === 'y' ? xAxis : yAxis // Show correct axis label
                 }
             }
         }
-    };
+    },
+    plugins: [ChartDataLabels]
+};
+// ...existing code...
+// ...existing code for chart creation...
 
     // ...existing code for chart creation...
 
