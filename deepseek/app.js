@@ -1721,9 +1721,94 @@ function createChart() {
                 title: {
                     display: true,
                     text: `${yAxis} by ${xAxis}`
+                },
+                datalabels: {
+                    display: true,
+                    anchor: 'end',
+                    align: 'top',
+                    color: '#333',
+                    font: {
+                        weight: 'bold',
+                        size: 12
+                    },
+                    formatter: function(value, context) {
+                        return value;
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    display: true,
+                    title: {
+                        display: true,
+                        text: indexAxis === 'y' ? yAxis : xAxis,
+                        font: {
+                            size: 14,
+                            weight: 'bold'
+                        },
+                        color: '#333'
+                    },
+                    ticks: {
+                        font: {
+                            size: 12
+                        }
+                    }
+                },
+                y: {
+                    display: true,
+                    title: {
+                        display: true,
+                        text: indexAxis === 'y' ? xAxis : yAxis,
+                        font: {
+                            size: 14,
+                            weight: 'bold'
+                        },
+                        color: '#333'
+                    },
+                    ticks: {
+                        font: {
+                            size: 12
+                        }
+                    }
+                }
+            },
+            layout: {
+                padding: {
+                    top: 30
                 }
             }
-        }
+        },
+        plugins: [{
+            afterDatasetsDraw: function(chart) {
+                const ctx = chart.ctx;
+                chart.data.datasets.forEach((dataset, i) => {
+                    const meta = chart.getDatasetMeta(i);
+                    meta.data.forEach((bar, index) => {
+                        const data = dataset.data[index];
+                        
+                        ctx.fillStyle = '#333';
+                        ctx.font = 'bold 12px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'bottom';
+                        
+                        let x, y;
+                        if (indexAxis === 'y') {
+                            // Horizontal bar chart
+                            x = bar.x + 5;
+                            y = bar.y + 4;
+                            ctx.textAlign = 'left';
+                            ctx.textBaseline = 'middle';
+                        } else {
+                            // Vertical bar chart
+                            x = bar.x;
+                            y = bar.y - 5;
+                        }
+                        
+                        ctx.fillText(data, x, y);
+                    });
+                });
+            }
+        }]
     };
 
     // ...existing code for chart creation...
