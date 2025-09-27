@@ -3,6 +3,14 @@ let csvData = [];
 let univer, univerSheet;
 let univerResults;
 
+const editorTextarea = document.getElementById('sqlQuery');
+const sqlEditor = CodeMirror.fromTextArea(editorTextarea, {
+    mode: 'text/x-sql',
+    theme: 'dracula',
+    lineNumbers: true,
+    autofocus: true
+});
+
 // Initialize SQLite
 initSqlJs({ locateFile: file => `https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/${file}` }).then(SQL => {
   db = new SQL.Database();
@@ -78,7 +86,7 @@ function createSQLiteTable(data) {
 }
 
 function runSQL() {
-  const query = document.getElementById('sqlQuery').value;
+  const query = sqlEditor.getValue();
   try {
     const result = db.exec(query);
     if (!result[0]) return alert("No results");

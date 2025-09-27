@@ -1,49 +1,92 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Spreadsheet + SQL</title>
-  <script src="https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/sql-wasm.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
-  <script src="https://unpkg.com/@univerjs/core@2.0.5/umd/index.js"></script>
-  <script src="https://unpkg.com/@univerjs/ui@2.0.5/umd/index.js"></script>
-  <script src="https://unpkg.com/@univerjs/sheets@2.0.5/umd/index.js"></script>
-  <link rel="stylesheet" href="https://unpkg.com/@univerjs/ui@2.0.5/umd/index.css" />
-  <style>
-    body { font-family: sans-serif; margin: 0; padding: 0; }
-    #controls { padding: 10px; background: #eee; }
-    #spreadsheet, #sql-results { height: 400px; }
-    textarea { width: 100%; height: 100px; }
-  </style>
-</head>
-<body style="display: flex; height: 100vh;">
-  <!-- Left Sidebar -->
-  <div style="width: 200px; background: #f4f4f4; padding: 10px;">
-    <h3>Sample CSVs</h3>
-    <ul style="list-style: none; padding-left: 0;">
-      <li><a href="#" onclick="loadSample('samples/sales.csv')">📊 sales.csv</a></li>
-      <li><a href="#" onclick="loadSample('samples/students.csv')">🎓 students.csv</a></li>
-      <li><a href="#" onclick="loadSample('samples/inventory.csv')">📦 inventory.csv</a></li>
-    </ul>
-  </div>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Spreadsheet + SQL</title>
+    <script src="https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/sql-wasm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
+    <script src="https://unpkg.com/@univerjs/core@2.0.5/umd/index.js"></script>
+    <script src="https://unpkg.com/@univerjs/ui@2.0.5/umd/index.js"></script>
+    <script src="https://unpkg.com/@univerjs/sheets@2.0.5/umd/index.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/@univerjs/ui@2.0.5/umd/index.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css"
+    />
 
-  <!-- Main Content -->
-  <div style="flex: 1; display: flex; flex-direction: column;">
-    <div id="controls">
-      <input type="file" id="csvInput" accept=".csv" />
-      <button onclick="runSQL()">Run SQL</button>
-      <button onclick="saveAsCSV()">Download Results CSV</button>
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"
+      defer
+    ></script>
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js"
+      defer
+    ></script>
+    <style>
+      body {
+        font-family: sans-serif;
+        margin: 0;
+        padding: 0;
+      }
+      #controls {
+        padding: 10px;
+        background: #eee;
+      }
+      #spreadsheet,
+      #sql-results {
+        height: 400px;
+      }
+      textarea {
+        width: 100%;
+        height: 100px;
+      }
+    </style>
+  </head>
+  <body style="display: flex; height: 100vh">
+    <!-- Left Sidebar -->
+    <div style="width: 200px; background: #f4f4f4; padding: 10px">
+      <h3>Sample CSVs</h3>
+      <ul style="list-style: none; padding-left: 0">
+        <li>
+          <a href="#" onclick="loadSample('samples/sales.csv')">📊 sales.csv</a>
+        </li>
+        <li>
+          <a href="#" onclick="loadSample('samples/students.csv')"
+            >🎓 students.csv</a
+          >
+        </li>
+        <li>
+          <a href="#" onclick="loadSample('samples/inventory.csv')"
+            >📦 inventory.csv</a
+          >
+        </li>
+      </ul>
     </div>
 
-    <div id="spreadsheet"></div>
+    <!-- Main Content -->
+    <div style="flex: 1; display: flex; flex-direction: column">
+      <div id="controls">
+        <input type="file" id="csvInput" accept=".csv" />
+        <button onclick="runSQL()">Run SQL</button>
+        <button onclick="saveAsCSV()">Download Results CSV</button>
+      </div>
 
-    <h3>Run SQL Query (use SELECT * FROM data):</h3>
-    <textarea id="sqlQuery">SELECT * FROM data;</textarea>
+      <div id="spreadsheet"></div>
 
-    <h3>SQL Results:</h3>
-    <div id="sql-results"></div>
-  </div>
+      <h3>Run SQL Query (use SELECT * FROM data):</h3>
+      <textarea id="sqlQuery">SELECT * FROM data;</textarea>
 
-  <script src="app.js"></script>
-</body>
+      <h3>SQL Results:</h3>
+      <div id="sql-results"></div>
+    </div>
+
+    <script src="app.js" defer></script>
+  </body>
 </html>
