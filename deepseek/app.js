@@ -1,6 +1,17 @@
 
 let SQL;
 let db;
+let sqlEditor;
+
+document.addEventListener('DOMContentLoaded', () => {
+    const editorTextarea = document.getElementById('sql-query');
+    sqlEditor = CodeMirror.fromTextArea(editorTextarea, {
+        mode: 'text/x-sql',
+        theme: 'dracula',
+        lineNumbers: false,
+        autofocus: true
+    });
+});
 
 initSqlJs({
     locateFile: file => `https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/${file}`
@@ -1627,7 +1638,7 @@ function runSQL() {
         return;
     }
     
-    const query = sqlQuery.value.trim();
+    const query = sqlEditor.getValue().trim();
     if (!query) {
         alert('Please enter a SQL query');
         return;

@@ -198,3 +198,17 @@
 .notification.error {
   background: #dc3545;
 }
+
+
+
+/* Style for the new CodeMirror editor */
+.CodeMirror {
+  border: 1px solid #ccc;
+  height: 200px;
+  width: 100%; /* Add this line */
+}
+
+/* Fix for CodeMirror line number alignment issue */
+.CodeMirror-gutters {
+  box-sizing: content-box;
+}
