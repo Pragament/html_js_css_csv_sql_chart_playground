@@ -199,16 +199,108 @@
   background: #dc3545;
 }
 
+/* ===== Styles for SQL Tab Functionality ===== */
 
-
-/* Style for the new CodeMirror editor */
-.CodeMirror {
-  border: 1px solid #ccc;
-  height: 200px;
-  width: 100%; /* Add this line */
+/* Flex container for editor and history */
+.sql-editor-area {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 10px;
 }
 
-/* Fix for CodeMirror line number alignment issue */
-.CodeMirror-gutters {
-  box-sizing: content-box;
+/* Wrapper for the CodeMirror editor instance */
+.sql-editor-wrapper {
+    flex: 3; /* Editor takes more space */
+    display: flex; /* Helps CodeMirror size correctly */
 }
+
+.sql-editor-wrapper .CodeMirror {
+    flex: 1;
+    height: 250px;
+    font-size: 14px;
+}
+
+/* History Panel */
+#sql-history-container {
+    flex: 2; /* History takes less space */
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 10px;
+    height: 250px; /* Match editor height */
+    overflow-y: auto;
+    background-color: #f9f9f9;
+}
+
+#sql-history-container h4 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    font-size: 14px;
+    color: #333;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 5px;
+}
+
+#sql-history-container ul {
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
+}
+
+#sql-history-container li {
+    padding: 8px;
+    font-family: monospace;
+    font-size: 13px;
+    cursor: pointer;
+    border-bottom: 1px solid #eee;
+    white-space: pre-wrap; /* Wrap long queries */
+    word-break: break-all;
+}
+
+#sql-history-container li:hover {
+    background-color: #e9e9e9;
+}
+
+/* Results Panel */
+#sql-results-container {
+    margin-top: 15px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    max-height: 400px;
+    overflow: auto;
+    background-color: #fff;
+}
+
+#sql-results-container .placeholder-text,
+#sql-results-container .error-text {
+    padding: 15px;
+    color: #888;
+}
+
+#sql-results-container .error-text {
+    color: #dc3545;
+    font-family: monospace;
+}
+
+/* Results Table */
+#sql-results-container table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+#sql-results-container th,
+#sql-results-container td {
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    text-align: left;
+    white-space: nowrap;
+}
+
+#sql-results-container th {
+    background-color: #f2f2f2;
+    font-weight: bold;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+/* ===== End of Styles for SQL Tab ===== */
