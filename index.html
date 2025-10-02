@@ -62,10 +62,21 @@
       </div>
 
       <div class="tab-content" id="sql-tab">
-        <textarea id="sql-query" rows="10" placeholder="Enter SQL query"></textarea>
+        <div class="sql-editor-area">
+          <div class="sql-editor-wrapper">
+            <textarea id="sql-query" placeholder="Enter SQL query"></textarea>
+          </div>
+          <div id="sql-history-container">
+            <h4>Query History</h4>
+            <ul id="sql-history-list">
+              </ul>
+          </div>
+        </div>
         <button id="run-sql" disabled>Run SQL</button>
+        <div id="sql-results-container">
+          <p class="placeholder-text">Query results will appear here.</p>
+        </div>
       </div>
-
       <div class="tab-content" id="chart-tab">
         <div class="chart-controls">
           <select id="chart-type">
@@ -82,9 +93,7 @@
     </div>
   </div>
 
-  <!-- Mocha & Chai setup -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mocha/mocha.css" />
-  <!-- <div id="mocha" style="background:#b33333; color:#222; margin:16px; padding:8px; border-radius:6px;"></div> -->
   <script src="https://cdn.jsdelivr.net/npm/mocha/mocha.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chai/chai.js"></script>
   <script>
@@ -101,7 +110,6 @@
   <script src="app.js" defer></script>
   <script type="module" src="user-test.js"></script>
 
-  <!-- ✅ Excel-like Formula Insertion + Evaluation on Enter -->
   <script>
     window.addEventListener('DOMContentLoaded', () => {
       // ✅ Click on cell inserts reference into formula bar at cursor position

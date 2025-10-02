@@ -1,7 +1,9 @@
-
 let SQL;
 let db;
 let sqlEditor;
+
+// ADDED: Key for local storage
+const SQL_HISTORY_KEY = 'spreadsheet_sql_history';
 
 document.addEventListener('DOMContentLoaded', () => {
     const editorTextarea = document.getElementById('sql-query');
@@ -215,6 +217,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize with sample data
     console.log('Loading initial sales data');
     loadSampleData('sales');
+    
+    // MODIFIED: Load SQL history on startup
+    renderSqlHistory();
 
     // Add mousemove and mouseup listeners for drag selection
     let isDragging = false;
@@ -283,6 +288,11 @@ function updateCellValue(row, col, value) {
     updateSQLDatabase();
     renderSpreadsheet();
 }
+
+// ... (The rest of your functions like parseCellReference, evaluateFormula, etc. remain unchanged)
+// ...
+// ... (Keep all functions from parseCellReference down to updateChartDropdowns as they were)
+// ...
 
 // Parse cell reference (e.g., "A1" → { row: 0, col: 0 })
 function parseCellReference(ref) {
@@ -1630,45 +1640,127 @@ function updateChartDropdowns() {
     console.log('Chart dropdowns updated');
 }
 
-// Run SQL query
+// ===== NEW/MODIFIED SQL FUNCTIONS =====
+
+// Render SQL query results in their own table
+function renderSqlResults(result, error = null) {
+    const container = document.getElementById('sql-results-container');
+    container.innerHTML = ''; // Clear previous results
+
+    if (error) {
+        container.innerHTML = `<p class="error-text">SQL Error: ${error.message}</p>`;
+        return;
+    }
+
+    if (!result || result.length === 0) {
+        container.innerHTML = `<p class="placeholder-text">Query executed successfully but returned no results.</p>`;
+        return;
+    }
+
+    const { columns, values } = result[0];
+    const table = document.createElement('table');
+    const thead = document.createElement('thead');
+    const tbody = document.createElement('tbody');
+    const headerRow = document.createElement('tr');
+
+    columns.forEach(colName => {
+        const th = document.createElement('th');
+        th.textContent = colName;
+        headerRow.appendChild(th);
+    });
+
+    thead.appendChild(headerRow);
+
+    values.forEach(row => {
+        const tr = document.createElement('tr');
+        row.forEach(cellValue => {
+            const td = document.createElement('td');
+            td.textContent = cellValue;
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+    });
+
+    table.appendChild(thead);
+    table.appendChild(tbody);
+    container.appendChild(table);
+}
+
+// Add a query to local storage
+function addToSqlHistory(query) {
+    if (!query) return;
+    try {
+        let history = JSON.parse(localStorage.getItem(SQL_HISTORY_KEY)) || [];
+        // Remove existing instance of the same query to avoid duplicates
+        history = history.filter(q => q !== query);
+        // Add the new query to the top
+        history.unshift(query);
+        // Limit history to 50 entries
+        if (history.length > 50) {
+            history = history.slice(0, 50);
+        }
+        localStorage.setItem(SQL_HISTORY_KEY, JSON.stringify(history));
+        renderSqlHistory();
+    } catch (e) {
+        console.error("Failed to update SQL history:", e);
+    }
+}
+
+// Render the history list from local storage
+function renderSqlHistory() {
+    const historyList = document.getElementById('sql-history-list');
+    historyList.innerHTML = '';
+    try {
+        const history = JSON.parse(localStorage.getItem(SQL_HISTORY_KEY)) || [];
+        if (history.length === 0) {
+            const li = document.createElement('li');
+            li.textContent = "No history yet.";
+            li.style.cursor = 'default';
+            historyList.appendChild(li);
+        } else {
+            history.forEach(query => {
+                const li = document.createElement('li');
+                li.textContent = query;
+                li.addEventListener('click', () => {
+                    sqlEditor.setValue(query);
+                    sqlEditor.focus();
+                });
+                historyList.appendChild(li);
+            });
+        }
+    } catch (e) {
+        console.error("Failed to render SQL history:", e);
+        historyList.innerHTML = '<li>Error loading history.</li>';
+    }
+}
+
+// MODIFIED: Run SQL query
 function runSQL() {
-    console.log('Running SQL query');
     if (!SQL || !db) {
         alert('SQL.js is not loaded yet. Please wait a moment and try again.');
         return;
     }
-    
+
     const query = sqlEditor.getValue().trim();
     if (!query) {
-        alert('Please enter a SQL query');
+        renderSqlResults(null, { message: 'Query is empty.' });
         return;
     }
-    
+
+    // Add to history regardless of success or failure
+    addToSqlHistory(query);
+
     try {
         const result = db.exec(query);
-        
-        if (result.length === 0) {
-            alert('Query executed successfully but returned no results.');
-            return;
-        }
-        
-        const columns = result[0].columns;
-        const values = result[0].values;
-        
-        headers = columns;
-        currentData = values.map(row => row.map(cell => cell === null ? '' : cell.toString()));
-        
-        formulas = [];
-        dependencies = {};
-        
-        renderSpreadsheet();
-        updateChartDropdowns();
-        console.log('SQL query executed, data updated');
+        renderSqlResults(result);
+        console.log('SQL query executed successfully.');
     } catch (error) {
         console.error('SQL Error:', error);
-        alert(`SQL Error: ${error.message}`);
+        renderSqlResults(null, error);
     }
 }
+
+// ===== END OF NEW/MODIFIED SQL FUNCTIONS =====
 
 // Create chart
 // ...existing code...
