@@ -9,15 +9,22 @@
 
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+  
+  <link rel="stylesheet" href="https://cdn.datatables.net/2.0.8/css/dataTables.dataTables.css" />
 
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js" defer></script>
-
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js" defer></script>
+  
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/sql-wasm.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
   <script src="https://unpkg.com/mocha@10.2.0/mocha.js"></script>
   <script src="https://unpkg.com/chai@4.3.7/chai.js"></script>
+  
+  <script src="https://cdn.datatables.net/2.0.8/js/dataTables.js" defer></script>
 </head>
 <body>
   <div class="container">
@@ -46,6 +53,7 @@
 
       <div class="tabs">
         <button class="tab-button active" data-tab="spreadsheet-tab">Spreadsheet</button>
+        <button class="tab-button" data-tab="filtered-views-tab">Filtered Views</button>
         <button class="tab-button" data-tab="sql-tab">SQL Query</button>
         <button class="tab-button" data-tab="chart-tab">Charts</button>
       </div>
@@ -59,6 +67,14 @@
           </thead>
           <tbody id="data-body"></tbody>
         </table>
+      </div>
+      
+      <div class="tab-content" id="filtered-views-tab">
+        <textarea id="datatable-config" placeholder="Enter DataTables JSON config here..."></textarea>
+        <button id="apply-datatable-config">Apply</button>
+        <div id="datatable-container">
+            <p class="placeholder-text">DataTable will be rendered here after applying a configuration.</p>
+        </div>
       </div>
 
       <div class="tab-content" id="sql-tab">
@@ -77,6 +93,7 @@
           <p class="placeholder-text">Query results will appear here.</p>
         </div>
       </div>
+
       <div class="tab-content" id="chart-tab">
         <div class="chart-controls">
           <select id="chart-type">
@@ -112,45 +129,31 @@
 
   <script>
     window.addEventListener('DOMContentLoaded', () => {
-      // ✅ Click on cell inserts reference into formula bar at cursor position
       document.addEventListener('click', (event) => {
         const cell = event.target.closest('td[data-row][data-column]');
         if (!cell) return;
-
         const formulaBar = document.querySelector('#formula-bar');
         if (!formulaBar || document.activeElement !== formulaBar) return;
-
         const row = parseInt(cell.getAttribute('data-row')) + 1;
         const col = parseInt(cell.getAttribute('data-column'));
         const colLetter = String.fromCharCode(65 + col);
         const cellRef = `${colLetter}${row}`;
-
-        // ✅ Insert ref at cursor position, not overwrite
         const cursorPos = formulaBar.selectionStart || formulaBar.value.length;
         const before = formulaBar.value.slice(0, cursorPos);
         const after = formulaBar.value.slice(cursorPos);
         formulaBar.value = before + cellRef + after;
-
         formulaBar.dispatchEvent(new Event('input', { bubbles: true }));
-
-        // ✅ Keep cursor after inserted ref
         formulaBar.focus();
         formulaBar.setSelectionRange(cursorPos + cellRef.length, cursorPos + cellRef.length);
       });
-
-      // ✅ Press Enter to evaluate =B2+C2 style formulas
       const formulaBar = document.getElementById('formula-bar');
       formulaBar.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && window.selectedCells?.length > 0) {
           const [rowCol] = window.selectedCells;
           const [row, col] = rowCol.split('-').map(Number);
           const formula = formulaBar.value;
-
-          // Store formula
           window.formulas[row][col] = formula;
           window.currentData[row][col] = formula;
-
-          // Evaluate simple =B2+C2 formulas
           if (formula.startsWith('=')) {
             const match = formula.match(/^=([A-Z]+\d+)\+([A-Z]+\d+)$/i);
             if (match) {
@@ -165,15 +168,12 @@
               return;
             }
           }
-
-          // If not valid formula, show as text
           const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
           if (cell) cell.textContent = formula;
           window.updateCellValue(row, col, formula);
           window.renderSpreadsheet();
         }
       });
-
       function getCellNumericValue(ref) {
         const col = ref.charCodeAt(0) - 65;
         const row = parseInt(ref.slice(1), 10) - 1;

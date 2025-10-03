@@ -304,3 +304,41 @@
 }
 
 /* ===== End of Styles for SQL Tab ===== */
+
+
+/* ===== ADDED: Styles for Filtered Views Tab ===== */
+
+#filtered-views-tab .CodeMirror {
+    border: 1px solid #ccc;
+    height: 200px;
+    margin-bottom: 10px;
+}
+
+#apply-datatable-config {
+    padding: 8px 12px;
+    font-size: 14px;
+}
+
+#datatable-container {
+    margin-top: 15px;
+    border: 1px solid #ddd;
+    padding: 10px;
+    background-color: #fff;
+}
+
+#datatable-container .placeholder-text {
+    color: #888;
+}
+
+#datatable-container .error-text {
+    color: #dc3545;
+    font-family: monospace;
+    white-space: pre-wrap;
+}
+
+/* Basic styling for the rendered DataTable */
+#filtered-table {
+    width: 100% !important;
+}
+
+/* ===== End of Styles for Filtered Views Tab ===== */
