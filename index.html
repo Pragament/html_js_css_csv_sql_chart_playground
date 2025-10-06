@@ -71,19 +71,85 @@
         <button id="run-sql" disabled>Run SQL</button>
       </div>
 
-      <div class="tab-content" id="chart-tab">
-        <div class="chart-controls">
-          <select id="chart-type">
-            <option value="bar">Bar</option>
-            <option value="line">Line</option>
-            <option value="pie">Pie</option>
-          </select>
-          <select id="x-axis"></select>
-          <select id="y-axis"></select>
-          <button id="create-chart">Create Chart</button>
+        <div class="main-content">
+            <div class="toolbar">
+                <button id="import-btn">Import File</button>
+                <input type="file" id="file-input" accept=".csv,.xlsx,.xls" style="display: none;">
+                <button id="export-csv">Export CSV</button>
+                <button id="export-excel">Export Excel</button>
+                <button id="add-column">Add Column</button>
+                <button id="add-row">Add Row</button>
+                <button id="clear-data">Clear Data</button>
+                <input id="formula-bar" type="text" placeholder="Formula (e.g., =SUM(A1:A5))">
+            </div>
+
+            <div class="tabs">
+                <button class="tab-button active" data-tab="spreadsheet-tab">Spreadsheet</button>
+                <button class="tab-button" data-tab="filtered-views-tab">Filtered Views</button>
+                <button class="tab-button" data-tab="sql-tab">SQL Query</button>
+                <button class="tab-button" data-tab="chart-tab">Charts</button>
+            </div>
+
+            <div class="tab-content active" id="spreadsheet-tab">
+                <div id="notification" class="notification"></div>
+                <table id="spreadsheet">
+                    <thead><tr id="header-row"></tr></thead>
+                    <tbody id="data-body"></tbody>
+                </table>
+            </div>
+
+            <div class="tab-content" id="filtered-views-tab">
+                <textarea id="datatable-config"></textarea>
+                <button id="apply-datatable-config">Apply</button>
+                <div id="datatable-container">
+                    <p class="placeholder-text">DataTable will be rendered here.</p>
+                </div>
+            </div>
+            
+            <div class="tab-content" id="sql-tab">
+                <div class="sql-editor-area">
+                    <div class="sql-editor-wrapper"><textarea id="sql-query"></textarea></div>
+                    <div id="sql-history-container">
+                        <h4>Query History</h4>
+                        <ul id="sql-history-list"></ul>
+                    </div>
+                </div>
+                
+                <div class="sql-toolbar">
+                    <button id="run-sql" disabled>Run SQL</button>
+                    <div id="sql-actions" class="hidden">
+                        <button id="export-sql-csv">Export CSV</button>
+                        <button id="export-sql-excel">Export Excel</button>
+                        <span class="toolbar-separator">|</span>
+                        <select id="sql-chart-type">
+                            <option value="bar">Bar</option>
+                            <option value="line">Line</option>
+                            <option value="pie">Pie</option>
+                        </select>
+                        <select id="sql-x-axis" title="X-Axis (Labels)"></select>
+                        <select id="sql-y-axis" title="Y-Axis (Values)"></select>
+                        <button id="sql-create-chart">Create Chart</button>
+                    </div>
+                </div>
+
+                <div id="sql-results-container"><p class="placeholder-text">Query results will appear here.</p></div>
+                
+                <div id="sql-chart-area" class="hidden">
+                  <canvas id="sql-chart-canvas"></canvas>
+                  <button id="sql-download-chart" class="hidden">Download Chart</button>
+                </div>
+            </div>
+
+            <div class="tab-content" id="chart-tab">
+                <div class="chart-controls">
+                    <select id="chart-type"><option value="bar">Bar</option><option value="line">Line</option><option value="pie">Pie</option></select>
+                    <select id="x-axis"></select>
+                    <select id="y-axis"></select>
+                    <button id="create-chart">Create Chart</button>
+                </div>
+                <div id="chart-list"></div>
+            </div>
         </div>
-        <div id="chart-list"></div>
-      </div>
     </div>
   </div>
 
@@ -173,13 +239,6 @@
         }
       });
 
-      function getCellNumericValue(ref) {
-        const col = ref.charCodeAt(0) - 65;
-        const row = parseInt(ref.slice(1), 10) - 1;
-        const val = window.currentData?.[row]?.[col];
-        return parseFloat(val) || 0;
-      }
-    });
-  </script>
+    <script src="app.js"></script>
 </body>
 </html>

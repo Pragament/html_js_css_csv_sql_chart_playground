@@ -1,54 +1,42 @@
-*{
-    color:black;
-}
 .container {
     display: flex;
     height: 100vh;
     font-family: Arial, sans-serif;
 }
-
 .sidebar {
     width: 200px;
     background-color: #f4f4f4;
     padding: 20px;
     overflow-y: auto;
 }
-
 .sidebar h2 {
     margin-top: 0;
 }
-
 .sidebar ul {
     list-style: none;
     padding: 0;
 }
-
 .sidebar li {
     padding: 10px;
     cursor: pointer;
 }
-
 .sidebar li:hover {
     background-color: #e0e0e0;
 }
-
 .main-content {
     flex: 1;
     padding: 20px;
     display: flex;
     flex-direction: column;
 }
-
 .toolbar {
     margin-bottom: 10px;
 }
-
 .toolbar button, .toolbar input {
     margin-right: 10px;
     padding: 8px 12px;
     font-size: 14px;
 }
-
 #formula-bar {
     width: 200px;
     padding: 8px;
@@ -56,109 +44,85 @@
     border-radius: 4px;
     font-size: 14px;
 }
-
 .tabs {
     display: flex;
     margin-bottom: 10px;
 }
-
 .tab-button {
     padding: 10px 20px;
     border: none;
     background: #e0e0e0;
     cursor: pointer;
 }
-
 .tab-button.active {
     background: #4CAF50;
     color: white;
 }
-
 .tab-content {
     display: none;
 }
-
 .tab-content.active {
     display: block;
     flex: 1;
+    overflow: auto;
 }
-
 #spreadsheet {
     border-collapse: collapse;
     width: 100%;
     background: white;
     position: relative;
 }
-
 #spreadsheet th, #spreadsheet td {
     border: 1px solid #ddd;
     padding: 8px;
     text-align: left;
     min-width: 100px;
 }
-
 #spreadsheet th {
     background-color: #f2f2f2;
     font-weight: bold;
 }
-
 #spreadsheet .row-number {
     background-color: #f2f2f2;
     text-align: center;
     width: 40px;
 }
-
 #spreadsheet .row-number-header {
     background-color: #f2f2f2;
     width: 40px;
 }
-
 #spreadsheet td[contenteditable]:focus {
     outline: 2px solid #4CAF50;
     background: #fff;
 }
-
-#sql-query {
-    width: 100%;
-    height: 200px;
-    margin-bottom: 10px;
-}
-
 .chart-controls {
     margin-bottom: 20px;
 }
-
 .chart-controls select, .chart-controls button {
     margin-right: 10px;
     padding: 8px;
 }
-
 .chart-item {
     margin-bottom: 20px;
     border: 1px solid #ddd;
     padding: 10px;
 }
-
 .chart-item-actions button {
     margin-right: 10px;
     padding: 5px 10px;
 }
-
 .selected-cell {
     background-color: #e0f7fa;
     border: 2px solid #4CAF50 !important;
     position: relative;
 }
-
 .selected-row {
     background-color: #e0f7fa;
 }
-
 .selected-column {
     background-color: #e0f7fa;
     border: 2px solid #4CAF50 !important;
 }
-
 .fill-handle {
     width: 6px;
     height: 6px;
@@ -168,11 +132,9 @@
     right: 0;
     cursor: crosshair;
 }
-
 .fill-range {
     background: rgba(76, 175, 80, 0.2);
 }
-
 #loading {
     position: absolute;
     top: 50%;
@@ -187,28 +149,16 @@
   padding: 10px;
   text-align: center;
   font-weight: bold;
-  display: none; /* Hidden by default, shown via JS */
+  display: none;
 }
-
-.notification.info {
+.notification.info, .notification.success {
   background: #28a745;
 }
-
-.notification.success {
-  background: #28a745;
-}
-
 .notification.error {
   background: #dc3545;
 }
-
-
-
-/* Style for the new CodeMirror editor */
-.CodeMirror {
-  border: 1px solid #ccc;
-  height: 200px;
-  width: 100%; /* Add this line */
+.hidden {
+    display: none !important;
 }
 
 /* Fix for CodeMirror line number alignment issue */
