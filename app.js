@@ -60,6 +60,11 @@ const chartCanvas = document.getElementById('chart');
 const chartList = document.getElementById('chart-list');
 const loading = document.getElementById('loading');
 const formulaBar = document.getElementById('formula-bar');
+const loginBtn = document.getElementById('loginBtn');
+const logoutBtn = document.getElementById('logoutBtn');
+const saveBtn = document.getElementById('saveBtn');
+const savedFilesList = document.getElementById('saved-files');
+const sheetNameInput = document.getElementById('sheet-name');
 
 // Current data storage
 let currentData = [];
@@ -104,8 +109,8 @@ window.setCellValue = function(cell, value) {
     const col = parseInt(cell.dataset.column);
     console.log(`setCellValue: row=${row}, col=${col}, value=${value}`);
     cell.textContent = value;
-    window.currentData[row] = window.currentData[row] || [];
-    window.currentData[row][col] = value;
+    currentData[row] = currentData[row] || [];
+    currentData[row][col] = value;
     window.updateSQLDatabase();
 };
 
@@ -116,7 +121,7 @@ window.getCellValue = function(cell) {
     }
     const row = parseInt(cell.dataset.row);
     const col = parseInt(cell.dataset.column);
-    return window.currentData[row]?.[col] || cell.textContent || '';
+    return currentData[row]?.[col] || cell.textContent || '';
 };
 
 window.clearHighlights = function() {
@@ -135,24 +140,69 @@ window.showNotification = function(message, type = 'info') {
     notification.textContent = message;
     notification.className = `notification ${type}`;
     notification.style.display = 'block';
+    setTimeout(() => {
+        notification.style.display = 'none';
+    }, 3000);
 };
 
 window.generateRandomSheet = function(rows = 4, cols = 5) {
     console.log('Generating sheet:', rows, cols);
-    const headers = Array.from({ length: cols }, (_, i) => String.fromCharCode(65 + i));
+    const genHeaders = Array.from({ length: cols }, (_, i) => String.fromCharCode(65 + i));
     const data = Array.from({ length: rows }, () => Array(cols).fill(''));
-    window.headers = headers;
-    window.currentData = data;
-    window.formulas = Array(rows).fill().map(() => Array(cols).fill(undefined));
-    window.dependencies = {};
+    headers = genHeaders;
+    currentData = data;
+    formulas = Array(rows).fill().map(() => Array(cols).fill(undefined));
+    dependencies = {};
     window.renderSpreadsheet();
     window.updateSQLDatabase();
     window.updateChartDropdowns();
 };
+
+function waitForFirebaseInit(callback) {
+    const maxAttempts = 50; // 5 seconds (50 * 100ms)
+    let attempts = 0;
+    function checkFirebase() {
+        if (
+            window.firebaseAuth &&
+            window.firebaseProvider &&
+            window.signInWithPopup &&
+            window.signInWithRedirect &&
+            window.getRedirectResult &&
+            window.signOut &&
+            window.doc &&
+            window.setDoc &&
+            window.getDoc &&
+            window.collection &&
+            window.query &&
+            window.getDocs
+        ) {
+            console.log('Firebase initialized successfully');
+            callback();
+        } else {
+            attempts++;
+            if (attempts >= maxAttempts) {
+                console.error('Firebase initialization timed out');
+                window.showNotification('Failed to initialize Firebase. Please check your network and refresh.', 'error');
+                return;
+            }
+            console.log(`Waiting for Firebase initialization (attempt ${attempts}/${maxAttempts})`);
+            setTimeout(checkFirebase, 100);
+        }
+    }
+    checkFirebase();
+}
+
 // Initialize the app
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM loaded, setting up event listeners');
-    // Event listeners
+
+    // Verify Firebase script is loaded
+    if (!window.firebase) {
+        console.error('Firebase script not loaded');
+        window.showNotification('Firebase is not available. Please check if firebase.js is loaded.', 'error');
+    }
+
+    // Event listeners for other functionalities (unchanged)
     const importBtn = document.getElementById('import-btn');
     if (importBtn) importBtn.addEventListener('click', () => {
         console.log('Import button clicked');
@@ -247,6 +297,268 @@ document.addEventListener('DOMContentLoaded', function() {
             dragStartCell = null;
             console.log('Drag selection ended, selected cells:', selectedCells);
         }
+    });
+
+    // Firebase Authentication Setup
+    waitForFirebaseInit(() => {
+        console.log('Firebase is ready, setting up auth listeners');
+
+        // Login with popup fallback to redirect
+        if (loginBtn) {
+            loginBtn.addEventListener('click', async () => {
+                if (!window.firebaseAuth || !window.firebaseProvider) {
+                    console.error('Firebase auth or provider not initialized');
+                    window.showNotification('Authentication service is not available. Please check Firebase setup.', 'error');
+                    return;
+                }
+                try {
+                    let result;
+                    try {
+                        result = await window.signInWithPopup(window.firebaseAuth, window.firebaseProvider);
+                        console.log('Popup login successful:', result.user.displayName);
+                    } catch (popupErr) {
+                        console.warn('Popup login failed:', popupErr.code, popupErr.message);
+                        if (popupErr.code === 'auth/popup-blocked' || popupErr.code === 'auth/popup-closed-by-user') {
+                            window.showNotification('Popup blocked. Redirecting to login...', 'info');
+                            await window.signInWithRedirect(window.firebaseAuth, window.firebaseProvider);
+                            return;
+                        }
+                        throw popupErr;
+                    }
+                    window.showNotification(`Logged in as ${result.user.displayName || 'User'}`, 'success');
+                    updateAuthUI(true);
+                    loadSavedList(result.user);
+                } catch (err) {
+                    console.error('Login error:', err);
+                    let errorMessage = 'Login failed. Please try again.';
+                    if (err.code === 'auth/network-request-failed') {
+                        errorMessage = 'Network error. Please check your internet connection.';
+                    } else if (err.code === 'auth/invalid-credential') {
+                        errorMessage = 'Invalid credentials. Please check your login details.';
+                    } else if (err.code) {
+                        errorMessage = `Login failed: ${err.code}`;
+                    }
+                    window.showNotification(errorMessage, 'error');
+                }
+            });
+        } else {
+            console.error('Login button not found');
+            window.showNotification('Login button is missing in the UI.', 'error');
+        }
+
+        // Handle redirect result and auth state changes
+        if (window.firebaseAuth) {
+            window.firebaseAuth.onAuthStateChanged(async user => {
+                console.log('Auth state changed:', user ? `User logged in: ${user.uid}` : 'No user');
+                try {
+                    if (user) {
+                        const result = await window.getRedirectResult(window.firebaseAuth);
+                        if (result) {
+                            console.log('Redirect login successful:', result.user.displayName);
+                            window.showNotification(`Logged in as ${result.user.displayName || 'User'}`, 'success');
+                        }
+                        updateAuthUI(true);
+                        loadSavedList(user);
+                        window.showNotification('Please select a spreadsheet to load.', 'info');
+                    } else {
+                        updateAuthUI(false);
+                        savedFilesList.innerHTML = '';
+                        sheetNameInput.value = '';
+                        window.showNotification('Logged out', 'info');
+                    }
+                } catch (err) {
+                    console.error('Auth state error:', err);
+                    window.showNotification(`Authentication error: ${err.message}`, 'error');
+                }
+            });
+        } else {
+            console.error('Firebase auth not initialized');
+            window.showNotification('Authentication service is not available. Please check Firebase setup.', 'error');
+        }
+
+        // Logout
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', async () => {
+                if (!window.firebaseAuth) {
+                    console.error('Firebase auth not initialized');
+                    window.showNotification('Authentication service is not available.', 'error');
+                    return;
+                }
+                try {
+                    await window.signOut(window.firebaseAuth);
+                    console.log('Logout successful');
+                    window.showNotification('Logged out successfully', 'success');
+                    updateAuthUI(false);
+                    savedFilesList.innerHTML = '';
+                    sheetNameInput.value = '';
+                } catch (err) {
+                    console.error('Logout error:', err);
+                    window.showNotification(`Logout failed: ${err.message}`, 'error');
+                }
+            });
+        } else {
+            console.error('Logout button not found');
+            window.showNotification('Logout button is missing in the UI.', 'error');
+        }
+    });
+
+    function updateAuthUI(isLoggedIn) {
+        loginBtn.style.display = isLoggedIn ? 'none' : 'inline-block';
+        logoutBtn.style.display = isLoggedIn ? 'inline-block' : 'none';
+        saveBtn.style.display = isLoggedIn ? 'inline-block' : 'none';
+        console.log('Auth UI updated:', isLoggedIn);
+    }
+
+    // Load list of saved spreadsheets
+    async function loadSavedList(user) {
+        if (!window.firebaseDb || !window.collection || !window.query || !window.getDocs) {
+            console.error('Firestore not initialized');
+            window.showNotification('Firestore is not available. Please check Firebase setup.', 'error');
+            return;
+        }
+        try {
+            const q = window.query(window.collection(window.firebaseDb, `users/${user.uid}/spreadsheets`));
+            const snapshot = await window.getDocs(q);
+            savedFilesList.innerHTML = '';
+            snapshot.forEach(doc => {
+                const li = document.createElement('li');
+                li.textContent = doc.data().name || 'Untitled';
+                li.dataset.id = doc.id;
+                li.addEventListener('click', () => loadSpreadsheet(user, doc.id));
+                savedFilesList.appendChild(li);
+            });
+            console.log('Loaded saved spreadsheets list');
+            window.showNotification('Loaded saved spreadsheets list', 'info');
+        } catch (err) {
+            console.error('Error loading saved list:', err);
+            window.showNotification(`Error loading spreadsheets: ${err.message}`, 'error');
+        }
+    }
+
+    // Load a specific spreadsheet
+    async function loadSpreadsheet(user, sheetId) {
+        if (!window.firebaseDb || !window.doc || !window.getDoc) {
+            console.error('Firestore not initialized');
+            window.showNotification('Firestore is not available. Please check Firebase setup.', 'error');
+            return;
+        }
+        try {
+            const docRef = window.doc(window.firebaseDb, `users/${user.uid}/spreadsheets/${sheetId}`);
+            const docSnap = await window.getDoc(docRef);
+            if (docSnap.exists()) {
+                const saved = docSnap.data();
+                headers = saved.headers || [];
+                currentData = saved.data.map((rowObj) => {
+                    const row = [];
+                    for (let col = 0; col < headers.length; col++) {
+                        row.push(rowObj[col] || '');
+                    }
+                    return row;
+                });
+                formulas = saved.formulas.map((rowObj) => {
+                    const row = [];
+                    for (let col = 0; col < headers.length; col++) {
+                        row.push(rowObj[col] === null ? undefined : rowObj[col]);
+                    }
+                    return row;
+                });
+                dependencies = {};
+                for (let r = 0; r < currentData.length; r++) {
+                    for (let c = 0; c < headers.length; c++) {
+                        if (formulas[r] && formulas[r][c]) {
+                            currentData[r][c] = evaluateFormula(formulas[r][c], r, c);
+                        }
+                    }
+                }
+                renderSpreadsheet();
+                updateSQLDatabase();
+                updateChartDropdowns();
+                sheetNameInput.value = saved.name || '';
+                console.log('Spreadsheet loaded:', saved.name);
+                window.showNotification(`Loaded spreadsheet: ${saved.name}`, 'success');
+            } else {
+                console.error('Spreadsheet not found:', sheetId);
+                window.showNotification('Spreadsheet not found', 'error');
+            }
+        } catch (err) {
+            console.error('Error loading spreadsheet:', err);
+            window.showNotification(`Error loading spreadsheet: ${err.message}`, 'error');
+        }
+    }
+
+    // Save with name (new or overwrite)
+    if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+            const user = window.firebaseAuth?.currentUser;
+            if (!user) {
+                console.error('No user logged in for save');
+                window.showNotification('Please login first!', 'error');
+                return;
+            }
+            if (!window.firebaseDb || !window.doc || !window.setDoc) {
+                console.error('Firestore not initialized');
+                window.showNotification('Firestore is not available. Please check Firebase setup.', 'error');
+                return;
+            }
+            const name = sheetNameInput.value.trim();
+            if (!name) {
+                console.error('No sheet name provided');
+                window.showNotification('Enter a sheet name!', 'error');
+                return;
+            }
+            const sheetId = name.replace(/\s/g, '').toLowerCase();
+            try {
+                if (!formulas || !Array.isArray(formulas)) {
+                    formulas = Array(currentData.length).fill().map(() => Array(headers.length).fill(undefined));
+                }
+                const serializedData = currentData.map(row => {
+                    const obj = {};
+                    row.forEach((val, col) => {
+                        obj[col] = val;
+                    });
+                    return obj;
+                });
+                const serializedFormulas = formulas.map(row => {
+                    const obj = {};
+                    if (row) {
+                        row.forEach((f, col) => {
+                            obj[col] = f || null;
+                        });
+                    }
+                    return obj;
+                });
+                await window.setDoc(
+                    window.doc(window.firebaseDb, 'users', user.uid, 'spreadsheets', sheetId),
+                    {
+                        name,
+                        headers: headers,
+                        data: serializedData,
+                        formulas: serializedFormulas,
+                        savedAt: new Date()
+                    }
+                );
+                console.log(`Saved spreadsheet: ${name}`);
+                window.showNotification(`Saved "${name}" to Firestore!`, 'success');
+                loadSavedList(user);
+            } catch (err) {
+                console.error('Save error:', err);
+                window.showNotification(`Save failed: ${err.message}`, 'error');
+            }
+        });
+    } else {
+        console.error('Save button not found');
+        window.showNotification('Save button is missing in the UI.', 'error');
+    }
+        // Populate test list
+    const tests = [
+        'Fill Sequence Test',
+        'Sum Function Test',
+        'Double Click Fill Test'
+    ];
+    tests.forEach(testName => {
+        const li = document.createElement('li');
+        li.textContent = testName;
+        testList.appendChild(li);
     });
 });
 
@@ -862,7 +1174,7 @@ function processCSVData(csvString) {
         
         headers = data[0] || [];
         currentData = data.slice(1) || [];
-        formulas = [];
+        formulas = Array(currentData.length).fill().map(() => Array(headers.length).fill(undefined));
         dependencies = {};
         
         renderSpreadsheet();
@@ -890,7 +1202,7 @@ function processExcelData(arrayBuffer) {
         
         headers = data[0] || [];
         currentData = data.slice(1) || [];
-        formulas = [];
+        formulas = Array(currentData.length).fill().map(() => Array(headers.length).fill(undefined));
         dependencies = {};
         
         renderSpreadsheet();
@@ -1573,56 +1885,32 @@ function updateSQLDatabase() {
     }
     
     try {
-        db.run('DROP TABLE IF EXISTS data;');
-        
-        const sanitizedHeaders = headers.map((h, i) => {
-            if (!h || h.trim() === '') return `Column${i + 1}`;
-            return `"${h.replace(/[^a-zA-Z0-9_]/g, '_')}"`;
+        db.run('DROP TABLE IF EXISTS data');
+        let columns = headers.map((h, i) => `"${h}" TEXT`).join(', ');
+        db.run(`CREATE TABLE data (${columns})`);
+        currentData.forEach(row => {
+            let values = row.map(val => `'${val || ''}'`).join(', ');
+            db.run(`INSERT INTO data VALUES (${values})`);
         });
-        
-        const createTableSQL = `CREATE TABLE data (${sanitizedHeaders.join(', ')} TEXT);`;
-        console.log('Executing CREATE TABLE:', createTableSQL);
-        db.run(createTableSQL);
-        
-        const placeholders = headers.map(() => '?').join(', ');
-        const stmt = db.prepare(`INSERT INTO data VALUES (${placeholders});`);
-        
-        currentData.forEach((row, rowIndex) => {
-            const normalizedRow = headers.map((_, i) => {
-                let value = row[i] || '';
-                if (typeof value === 'number' || value.startsWith('#')) {
-                    return value.toString();
-                }
-                return value.replace(/"/g, '""');
-            });
-            console.log(`Inserting row ${rowIndex}:`, normalizedRow);
-            stmt.run(normalizedRow);
-        });
-        
-        stmt.free();
-        console.log('SQL database updated');
-    } catch (error) {
-        console.error('SQL Error:', error.message, 'SQL:', createTableSQL || 'N/A');
-        alert(`SQL Error: ${error.message}`);
+    } catch (err) {
+        console.error('Error updating SQL database:', err);
+        window.showNotification('Error updating SQL database', 'error');
     }
 }
 
 // Update chart dropdowns
 function updateChartDropdowns() {
-    console.log('Updating chart dropdowns');
-    xAxisSelect.innerHTML = '';
-    yAxisSelect.innerHTML = '';
-    
-    headers.forEach(header => {
-        const option1 = document.createElement('option');
-        option1.value = header;
-        option1.textContent = header;
-        xAxisSelect.appendChild(option1);
-        
-        const option2 = document.createElement('option');
-        option2.value = header;
-        option2.textContent = header;
-        yAxisSelect.appendChild(option2);
+    xAxisSelect.innerHTML = '<option value="">Select X Axis</option>';
+    yAxisSelect.innerHTML = '<option value="">Select Y Axis</option>';
+    headers.forEach((header, index) => {
+        const optionX = document.createElement('option');
+        optionX.value = index;
+        optionX.textContent = header;
+        xAxisSelect.appendChild(optionX);
+        const optionY = document.createElement('option');
+        optionY.value = index;
+        optionY.textContent = header;
+        yAxisSelect.appendChild(optionY);
     });
     
     if (headers.length >= 1) xAxisSelect.value = headers[0];
@@ -1657,8 +1945,7 @@ function runSQL() {
         
         headers = columns;
         currentData = values.map(row => row.map(cell => cell === null ? '' : cell.toString()));
-        
-        formulas = [];
+        formulas = Array(currentData.length).fill().map(() => Array(headers.length).fill(undefined));
         dependencies = {};
         
         renderSpreadsheet();
@@ -1683,23 +1970,21 @@ function createChart() {
     let xAxis = xAxisSelect.value;
     let yAxis = yAxisSelect.value;
 
-    let xIndex = headers.indexOf(xAxis);
-    let yIndex = headers.indexOf(yAxis);
+    let xIndex = parseInt(xAxis);
+    let yIndex = parseInt(yAxis);
 
-    if (xIndex === -1 || yIndex === -1) {
+    if (isNaN(xIndex) || isNaN(yIndex)) {
         alert('Invalid axis selection');
         return;
     }
 
     // Check if Y-axis is numeric
     let yValues = currentData.map(row => row[yIndex]);
-    let yIsNumeric = yValues.every(val => !isNaN(parseFloat(val)));
+    let yIsNumeric = yValues.every(val => !isNaN(parseFloat(val)) || val === '');
 
     if (!yIsNumeric) {
         // If not numeric, swap axes and use horizontal bar chart
-        [xAxis, yAxis] = [yAxis, xAxis];
         [xIndex, yIndex] = [yIndex, xIndex];
-        yValues = currentData.map(row => row[yIndex]);
         chartType = 'bar'; // Chart.js v3+ uses 'bar' with indexAxis option for horizontal
         var indexAxis = 'y';
     } else {
@@ -1707,7 +1992,7 @@ function createChart() {
     }
 
     // Now, x-axis is always categories, y-axis is always numeric
-    const labels = currentData.map(row => row[xIndex]);
+    const labels = currentData.map(row => row[xIndex] || '');
     const dataValues = currentData.map(row => {
         const val = row[yIndex];
         return isNaN(parseFloat(val)) ? 0 : parseFloat(val);
@@ -1718,7 +2003,7 @@ function createChart() {
         data: {
             labels: labels,
             datasets: [{
-                label: `${yAxis} by ${xAxis}`,
+                label: `${headers[yIndex]} by ${headers[xIndex]}`,
                 data: dataValues,
                 backgroundColor: getChartColors(chartType, dataValues.length),
                 borderColor: '#4CAF50',
@@ -1731,20 +2016,7 @@ function createChart() {
             plugins: {
                 title: {
                     display: true,
-                    text: `${yAxis} by ${xAxis}`
-                },
-                datalabels: {
-                    display: true,
-                    anchor: 'end',
-                    align: 'top',
-                    color: '#333',
-                    font: {
-                        weight: 'bold',
-                        size: 12
-                    },
-                    formatter: function(value, context) {
-                        return value;
-                    }
+                    text: `${headers[yIndex]} by ${headers[xIndex]}`
                 }
             },
             scales: {
@@ -1752,7 +2024,7 @@ function createChart() {
                     display: true,
                     title: {
                         display: true,
-                        text: indexAxis === 'y' ? yAxis : xAxis,
+                        text: indexAxis === 'y' ? headers[yIndex] : headers[xIndex],
                         font: {
                             size: 14,
                             weight: 'bold'
@@ -1769,7 +2041,7 @@ function createChart() {
                     display: true,
                     title: {
                         display: true,
-                        text: indexAxis === 'y' ? xAxis : yAxis,
+                        text: indexAxis === 'y' ? headers[xIndex] : headers[yIndex],
                         font: {
                             size: 14,
                             weight: 'bold'
@@ -1788,44 +2060,9 @@ function createChart() {
                     top: 30
                 }
             }
-        },
-        plugins: [{
-            afterDatasetsDraw: function(chart) {
-                const ctx = chart.ctx;
-                chart.data.datasets.forEach((dataset, i) => {
-                    const meta = chart.getDatasetMeta(i);
-                    meta.data.forEach((bar, index) => {
-                        const data = dataset.data[index];
-                        
-                        ctx.fillStyle = '#333';
-                        ctx.font = 'bold 12px Arial';
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'bottom';
-                        
-                        let x, y;
-                        if (indexAxis === 'y') {
-                            // Horizontal bar chart
-                            x = bar.x + 5;
-                            y = bar.y + 4;
-                            ctx.textAlign = 'left';
-                            ctx.textBaseline = 'middle';
-                        } else {
-                            // Vertical bar chart
-                            x = bar.x;
-                            y = bar.y - 5;
-                        }
-                        
-                        ctx.fillText(data, x, y);
-                    });
-                });
-            }
-        }]
+        }
     };
 
-    // ...existing code for chart creation...
-
-// ...existing code...
-    
     const chartId = `chart-${Date.now()}`;
     const chartItem = document.createElement('div');
     chartItem.className = 'chart-item';
@@ -1846,8 +2083,8 @@ function createChart() {
         id: chartId,
         chart: chart,
         type: chartType,
-        xAxis: xAxis,
-        yAxis: yAxis
+        xAxis: xIndex,
+        yAxis: yIndex
     });
     
     chartItem.querySelector('.delete-chart').addEventListener('click', function() {
@@ -1956,7 +2193,7 @@ function addColumn() {
 function addRow() {
     console.log('Adding row');
     currentData.push(headers.map(() => ''));
-    formulas.push([]);
+    formulas.push(Array(headers.length).fill(undefined));
     
     renderSpreadsheet();
     updateSQLDatabase();
@@ -2000,3 +2237,9 @@ document.addEventListener('mouseover', event => {
         }
     }
 });
+
+window.renderSpreadsheet = renderSpreadsheet;
+window.updateSQLDatabase = updateSQLDatabase;
+window.updateChartDropdowns = updateChartDropdowns;
+window.updateCellValue = updateCellValue;
+window.evaluateFormula = evaluateFormula;

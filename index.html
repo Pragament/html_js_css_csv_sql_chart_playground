@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Spreadsheet App</title>
@@ -28,12 +27,18 @@
         <li data-file="employees">Employee Data</li>
         <li data-file="inventory">Inventory Data</li>
       </ul>
+      <h2>Saved Spreadsheets</h2>
+      <ul id="saved-files"></ul>
       <h2>Tests</h2>
       <ul id="test-list"></ul>
     </div>
 
     <div class="main-content">
       <div class="toolbar">
+        <button id="loginBtn">Login</button>
+        <button id="logoutBtn" style="display:none;">Logout</button>
+        <input id="sheet-name" type="text" placeholder="Sheet Name" style="margin-right:10px;padding:8px;border:1px solid #ccc;border-radius:4px;">
+        <button id="saveBtn" style="display:none;">Save</button>
         <button id="import-btn">Import File</button>
         <input type="file" id="file-input" accept=".csv,.xlsx,.xls" style="display: none;">
         <button id="export-csv">Export CSV</button>
@@ -99,6 +104,7 @@
   </script>
 
   <script src="app.js" defer></script>
+  <script type="module" src="firebase.js"></script>
   <script type="module" src="user-test.js"></script>
 
   <!-- ✅ Excel-like Formula Insertion + Evaluation on Enter -->
@@ -140,6 +146,7 @@
 
           // Store formula
           window.formulas[row][col] = formula;
+          window.currentData[row] = window.currentData[row] || [];
           window.currentData[row][col] = formula;
 
           // Evaluate simple =B2+C2 formulas
