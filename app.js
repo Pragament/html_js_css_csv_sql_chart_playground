@@ -6,7 +6,7 @@ let datatableEditor;
 let dataTableInstance = null;
 let lastSqlResult = null;
 let sqlChartInstance = null;
-const SQL_HISTORY_KEY = 'spreadsheet_sql_history';
+const SQL_HISTORY_KEY = 'spreadsheet_sql_history_enhanced';
 
 // State for the View Options builder
 let viewOptionsState = {
@@ -66,6 +66,10 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('group-aggregate').addEventListener('change', updateGroupStateAndGenerateConfig);
     document.getElementById('col-order-toggle').addEventListener('click', handleColOrderToggle);
     document.getElementById('col-width-toggle').addEventListener('click', handleColWidthToggle);
+
+    document.getElementById('clear-history').addEventListener('click', clearHistory);
+    document.getElementById('show-favorites').addEventListener('click', () => renderSqlHistory('favorites'));
+    document.getElementById('show-all').addEventListener('click', () => renderSqlHistory('all'));
 
     document.querySelectorAll('.tab-button').forEach(button => {
         button.addEventListener('click', function() {
@@ -434,21 +438,167 @@ function renderSqlResults(result, error = null) {
 }
 function addToSqlHistory(query) {
     let history = JSON.parse(localStorage.getItem(SQL_HISTORY_KEY)) || [];
-    history = history.filter(q => q !== query);
-    history.unshift(query);
-    if (history.length > 20) history.length = 20;
+    
+    // Check if query already exists
+    const existingIndex = history.findIndex(item => item.query === query);
+    
+    if (existingIndex !== -1) {
+        // Update timestamp for existing query
+        history[existingIndex].timestamp = Date.now();
+        history[existingIndex].usageCount = (history[existingIndex].usageCount || 1) + 1;
+    } else {
+        // Add new query
+        history.unshift({
+            id: generateId(),
+            query: query,
+            timestamp: Date.now(),
+            usageCount: 1,
+            isFavorite: false,
+            name: `Query ${history.length + 1}`
+        });
+    }
+    
+    // Keep only last 50 items (excluding favorites)
+    const favorites = history.filter(item => item.isFavorite);
+    const nonFavorites = history.filter(item => !item.isFavorite).slice(0, 50 - favorites.length);
+    history = [...favorites, ...nonFavorites];
+    
     localStorage.setItem(SQL_HISTORY_KEY, JSON.stringify(history));
     renderSqlHistory();
 }
-function renderSqlHistory() {
+
+function generateId() {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2);
+}
+
+
+function renderSqlHistory(filter = 'all') {
     const historyList = document.getElementById('sql-history-list');
-    const history = JSON.parse(localStorage.getItem(SQL_HISTORY_KEY)) || [];
-    if (history.length === 0) { historyList.innerHTML = '<li>No history yet.</li>'; return; }
-    historyList.innerHTML = history.map(q => `<li>${q}</li>`).join('');
-    historyList.querySelectorAll('li').forEach((li, i) => {
-        li.addEventListener('click', () => { sqlEditor.setValue(history[i]); sqlEditor.focus(); });
+    let history = JSON.parse(localStorage.getItem(SQL_HISTORY_KEY)) || [];
+    
+    // Sort by timestamp (newest first), but keep favorites at top
+    history.sort((a, b) => {
+        if (a.isFavorite && !b.isFavorite) return -1;
+        if (!a.isFavorite && b.isFavorite) return 1;
+        return b.timestamp - a.timestamp;
+    });
+    
+    // Apply filter
+    if (filter === 'favorites') {
+        history = history.filter(item => item.isFavorite);
+    }
+    
+    if (history.length === 0) {
+        historyList.innerHTML = '<li class="history-item"><div class="history-item-content">No queries yet.</div></li>';
+        return;
+    }
+    
+    historyList.innerHTML = history.map(item => `
+        <li class="history-item ${item.isFavorite ? 'favorite' : ''}" data-id="${item.id}">
+            <div class="history-item-content" title="${item.query}">
+                <strong>${escapeHtml(item.name)}</strong><br>
+                <small>${escapeHtml(item.query)}</small>
+            </div>
+            <div class="history-item-actions">
+                <button class="history-action-btn rename" title="Rename">✏️</button>
+                <button class="history-action-btn favorite ${item.isFavorite ? 'active' : ''}" title="${item.isFavorite ? 'Remove from favorites' : 'Add to favorites'}">
+                    ${item.isFavorite ? '★' : '☆'}
+                </button>
+                <button class="history-action-btn delete" title="Delete">🗑️</button>
+            </div>
+        </li>
+    `).join('');
+    
+    // Add event listeners
+    historyList.querySelectorAll('.history-item').forEach((item, index) => {
+        const id = item.dataset.id;
+        const query = history.find(h => h.id === id)?.query;
+        
+        // Click on item content to load query
+        item.querySelector('.history-item-content').addEventListener('click', () => {
+            if (query) {
+                sqlEditor.setValue(query);
+                sqlEditor.focus();
+            }
+        });
+        
+        // Rename button
+        item.querySelector('.rename').addEventListener('click', (e) => {
+            e.stopPropagation();
+            renameQuery(id);
+        });
+        
+        // Favorite button
+        item.querySelector('.favorite').addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleFavorite(id);
+        });
+        
+        // Delete button
+        item.querySelector('.delete').addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteQuery(id);
+        });
     });
 }
+
+function renameQuery(id) {
+    let history = JSON.parse(localStorage.getItem(SQL_HISTORY_KEY)) || [];
+    const item = history.find(h => h.id === id);
+    if (!item) return;
+    
+    const newName = prompt('Enter a name for this query:', item.name);
+    if (newName && newName.trim()) {
+        item.name = newName.trim();
+        localStorage.setItem(SQL_HISTORY_KEY, JSON.stringify(history));
+        renderSqlHistory();
+    }
+}
+
+function toggleFavorite(id) {
+    let history = JSON.parse(localStorage.getItem(SQL_HISTORY_KEY)) || [];
+    const item = history.find(h => h.id === id);
+    if (item) {
+        item.isFavorite = !item.isFavorite;
+        item.timestamp = Date.now(); // Update timestamp when favoriting
+        localStorage.setItem(SQL_HISTORY_KEY, JSON.stringify(history));
+        renderSqlHistory();
+    }
+}
+
+function deleteQuery(id) {
+    if (confirm('Are you sure you want to delete this query from history?')) {
+        let history = JSON.parse(localStorage.getItem(SQL_HISTORY_KEY)) || [];
+        history = history.filter(h => h.id !== id);
+        localStorage.setItem(SQL_HISTORY_KEY, JSON.stringify(history));
+        renderSqlHistory();
+    }
+}
+
+function clearHistory() {
+    let history = JSON.parse(localStorage.getItem(SQL_HISTORY_KEY)) || [];
+    const favorites = history.filter(item => item.isFavorite);
+    
+    if (favorites.length === history.length) {
+        alert('All queries are favorites. No queries to clear.');
+        return;
+    }
+    
+    if (confirm(`Clear all non-favorite queries? (${history.length - favorites.length} queries will be removed)`)) {
+        localStorage.setItem(SQL_HISTORY_KEY, JSON.stringify(favorites));
+        renderSqlHistory();
+    }
+}
+
+function escapeHtml(unsafe) {
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
 function updateSqlChartControls(columns) {
     const xAxisSelect = document.getElementById('sql-x-axis');
     const yAxisSelect = document.getElementById('sql-y-axis');
