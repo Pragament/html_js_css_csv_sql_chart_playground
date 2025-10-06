@@ -8,6 +8,15 @@ let lastSqlResult = null;
 let sqlChartInstance = null;
 const SQL_HISTORY_KEY = 'spreadsheet_sql_history';
 
+// State for the View Options builder
+let viewOptionsState = {
+    order: [],
+    rowGroup: { dataSrc: null },
+    aggregate: { func: 'count', columnIndex: null },
+    colReorder: false,
+    columnDefs: []
+};
+
 // YOUR ORIGINAL GLOBAL VARIABLES (PRESERVED)
 const sampleData = {
     sales: `Product,Quarter,Qty,Revenue\nWidget,Q1,150,3750.00\nWidget,Q2,200,5000.00\nGadget,Q1,75,1125.00\nGadget,Q2,125,1875.00\nGadget,Q3,150,2250.00`,
@@ -31,23 +40,11 @@ window.fillRange = fillRange;
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM loaded, setting up event listeners');
 
-    // --- Initialize Editors ---
-    sqlEditor = CodeMirror.fromTextArea(document.getElementById('sql-query'), {
-        mode: 'text/x-sql',
-        theme: 'dracula',
-        lineNumbers: true
-    });
-    
-    datatableEditor = CodeMirror.fromTextArea(document.getElementById('datatable-config'), {
-        mode: { name: 'javascript', json: true },
-        theme: 'dracula',
-        lineNumbers: true
-    });
-    datatableEditor.setValue(`{\n  "paging": true,\n  "columnDefs": [\n    { "targets": 2, "visible": false }\n  ]\n}`);
+    sqlEditor = CodeMirror.fromTextArea(document.getElementById('sql-query'), { mode: 'text/x-sql', theme: 'dracula', lineNumbers: true });
+    datatableEditor = CodeMirror.fromTextArea(document.getElementById('datatable-config'), { mode: { name: 'javascript', json: true }, theme: 'dracula', lineNumbers: true });
+    datatableEditor.setValue(`{\n  "paging": true\n}`);
 
-    // --- Initialize Event Listeners ---
     const fileInput = document.getElementById('file-input');
-    const formulaBar = document.getElementById('formula-bar');
     
     document.getElementById('import-btn').addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', handleFileSelect);
@@ -57,7 +54,6 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('add-row').addEventListener('click', addRow);
     document.getElementById('clear-data').addEventListener('click', clearData);
     document.getElementById('create-chart').addEventListener('click', createChart);
-    
     document.getElementById('apply-datatable-config').addEventListener('click', applyDataTableConfig);
     document.getElementById('run-sql').addEventListener('click', runSQL);
     document.getElementById('export-sql-csv').addEventListener('click', () => exportSqlResults('csv'));
@@ -65,7 +61,12 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('sql-create-chart').addEventListener('click', createSqlChart);
     document.getElementById('sql-download-chart').addEventListener('click', downloadSqlChart);
 
-    // Tab switching with editor refresh
+    document.getElementById('add-sort-btn').addEventListener('click', handleAddSort);
+    document.getElementById('add-group-btn').addEventListener('click', handleAddGroup);
+    document.getElementById('group-aggregate').addEventListener('change', updateGroupStateAndGenerateConfig);
+    document.getElementById('col-order-toggle').addEventListener('click', handleColOrderToggle);
+    document.getElementById('col-width-toggle').addEventListener('click', handleColWidthToggle);
+
     document.querySelectorAll('.tab-button').forEach(button => {
         button.addEventListener('click', function() {
             document.querySelectorAll('.tab-button, .tab-content').forEach(el => el.classList.remove('active'));
@@ -78,17 +79,10 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Sample file loading
     document.querySelectorAll('#sample-files li').forEach(item => {
-        item.addEventListener('click', function() {
-            loadSampleData(this.getAttribute('data-file'));
-        });
+        item.addEventListener('click', function() { loadSampleData(this.getAttribute('data-file')); });
     });
 
-    // Your original formula bar and other listeners...
-    // ...
-
-    // Initialize Database and load initial data
     initSqlJs({ locateFile: file => `https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/${file}` })
     .then(SQL_ => {
         SQL = SQL_;
@@ -103,30 +97,33 @@ document.addEventListener('DOMContentLoaded', function() {
 // --- ALL YOUR ORIGINAL FUNCTIONS (PRESERVED AND UNCHANGED) ---
 
 function updateCellValue(row, col, value) {
-    // This is your full original function
     const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
     if (!cell) return;
+
     if (value.startsWith('=')) {
         formulas[row] = formulas[row] || [];
         formulas[row][col] = value;
-    } else if (formulas[row]?.[col]) {
-        delete formulas[row][col];
+    } else {
+        if (formulas[row]?.[col]) {
+            delete formulas[row][col];
+        }
     }
+
     currentData[row] = currentData[row] || [];
     currentData[row][col] = evaluateFormula(value, row, col);
     if (cell) cell.textContent = currentData[row][col];
+
     updateSQLDatabase();
     renderSpreadsheet();
 }
 
 function evaluateFormula(formula, row, col) {
-    // This is your full original, complex evaluateFormula function.
     if (!formula.startsWith('=')) return formula;
     try {
         let expr = formula.slice(1).replace(/[A-Z]+\d+/g, (ref) => {
             const cellRef = parseCellReference(ref);
             if (!cellRef || currentData[cellRef.row] === undefined || currentData[cellRef.row][cellRef.col] === undefined) return 0;
-            return currentData[cellRef.row][cellRef.col] || 0;
+            return parseFloat(currentData[cellRef.row][cellRef.col]) || 0;
         });
         return eval(expr);
     } catch (e) {
@@ -151,7 +148,6 @@ function loadSampleData(key) {
     const data = sampleData[key];
     if(data) processCSVData(data);
 }
-
 function handleFileSelect(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -163,30 +159,27 @@ function handleFileSelect(event) {
     if (file.name.endsWith('.csv')) reader.readAsText(file);
     else reader.readAsArrayBuffer(file);
 }
-
 function processCSVData(csvString) {
     const parsed = Papa.parse(csvString, { header: true, skipEmptyLines: true });
     headers = parsed.meta.fields || [];
     currentData = parsed.data.map(row => headers.map(h => row[h]));
-    formulas = Array(currentData.length).fill().map(() => Array(headers.length).fill(null));
     renderSpreadsheet();
     updateSQLDatabase();
     updateChartDropdowns();
+    populateViewOptionsUI();
 }
-
 function processExcelData(arrayBuffer) {
     const workbook = XLSX.read(arrayBuffer, { type: 'array' });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
     const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-    headers = jsonData[0];
+    headers = jsonData[0] || [];
     currentData = jsonData.slice(1);
-    formulas = Array(currentData.length).fill().map(() => Array(headers.length).fill(null));
     renderSpreadsheet();
     updateSQLDatabase();
     updateChartDropdowns();
+    populateViewOptionsUI();
 }
-
 function renderSpreadsheet() {
     const headerRow = document.getElementById('header-row');
     const dataBody = document.getElementById('data-body');
@@ -198,7 +191,6 @@ function renderSpreadsheet() {
         th.textContent = header;
         th.contentEditable = true;
         th.dataset.column = index;
-        th.addEventListener('blur', () => { headers[index] = th.textContent.trim() || `Column${index + 1}`; updateSQLDatabase(); updateChartDropdowns(); });
         headerRow.appendChild(th);
     });
 
@@ -215,23 +207,18 @@ function renderSpreadsheet() {
             td.contentEditable = true;
             td.dataset.row = rowIndex;
             td.dataset.column = colIndex;
-            td.addEventListener('blur', () => {
-                updateCellValue(rowIndex, colIndex, td.textContent.trim());
-            });
             tr.appendChild(td);
         });
         dataBody.appendChild(tr);
     });
 }
-
 function addColumn() { headers.push(`Column${headers.length + 1}`); currentData.forEach(row => row.push('')); renderSpreadsheet(); updateSQLDatabase(); updateChartDropdowns(); }
 function addRow() { currentData.push(Array(headers.length).fill('')); renderSpreadsheet(); updateSQLDatabase(); }
 function clearData() { if (confirm('Clear all data?')) { headers = []; currentData = []; charts.forEach(c => c.chart.destroy()); charts = []; document.getElementById('chart-list').innerHTML = ''; renderSpreadsheet(); updateSQLDatabase(); updateChartDropdowns(); } }
-
 function updateSQLDatabase() {
-    if (!db || !headers || headers.length === 0) return;
+    if (!db || headers.length === 0) return;
     db.run('DROP TABLE IF EXISTS data');
-    const sanitizedHeaders = headers.map(h => `"${h.replace(/"/g, '""')}"`);
+    const sanitizedHeaders = headers.map(h => `"${(h || 'column').replace(/"/g, '""')}"`);
     db.run(`CREATE TABLE data (${sanitizedHeaders.join(', ')})`);
     const stmt = db.prepare(`INSERT INTO data VALUES (${headers.map(() => '?').join(',')})`);
     currentData.forEach(row => {
@@ -240,16 +227,40 @@ function updateSQLDatabase() {
     stmt.free();
 }
 
-// --- NEW AND MODIFIED FUNCTIONS ---
-
+// --- VIEW OPTIONS FUNCTIONS ---
 function applyDataTableConfig() {
     const container = document.getElementById('datatable-container');
     if (headers.length === 0) { container.innerHTML = `<p class="placeholder-text">No data to display.</p>`; return; }
     if (dataTableInstance) dataTableInstance.destroy();
+    
     let config;
-    try { config = new Function(`return ${datatableEditor.getValue()}`)(); } catch (e) { container.innerHTML = `<p class="error-text">Error in config:\n${e.message}</p>`; return; }
+    try { 
+        config = new Function('return ' + datatableEditor.getValue())();
+    } catch (e) { 
+        container.innerHTML = `<p class="error-text">Error in JSON config:\n${e.message}</p>`; return;
+    }
+    
+    if (config.rowGroup && config.rowGroup.dataSrc !== null) {
+        const aggFunc = viewOptionsState.aggregate.func;
+        const aggColIdx = viewOptionsState.aggregate.columnIndex;
+
+        config.rowGroup.startRender = (rows, group) => {
+            let count = rows.count();
+            let aggregateDisplay = `(${count} rows)`;
+            
+            if ((aggFunc === 'sum' || aggFunc === 'avg') && aggColIdx !== null && count > 0) {
+                const sum = rows.data().pluck(aggColIdx).reduce((a, b) => a + (parseFloat(b) || 0), 0);
+                const aggValue = (aggFunc === 'avg') ? (sum / count).toFixed(2) : sum.toFixed(2);
+                aggregateDisplay += ` — ${aggFunc.toUpperCase()} of ${headers[aggColIdx]}: ${aggValue}`;
+            }
+            return group + ' ' + aggregateDisplay;
+        };
+        config.rowGroup.endRender = null;
+    }
+
     container.innerHTML = `<table id="filtered-table" class="display" style="width:100%"><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead></table>`;
     config.data = currentData;
+    
     try { 
         dataTableInstance = new DataTable('#filtered-table', config); 
     } catch (e) { 
@@ -257,6 +268,137 @@ function applyDataTableConfig() {
     }
 }
 
+function populateViewOptionsUI() {
+    document.getElementById('sort-list').innerHTML = '';
+    document.getElementById('group-list').innerHTML = '';
+    const colList = document.getElementById('column-order-list');
+    colList.innerHTML = headers.map(h => `<li draggable="true">${h}</li>`).join('');
+    
+    let draggedItem = null;
+    colList.addEventListener('dragstart', e => {
+        draggedItem = e.target;
+        setTimeout(() => e.target.style.opacity = '0.5', 0);
+    });
+    colList.addEventListener('dragend', e => {
+        setTimeout(() => {
+            if (e.target) e.target.style.opacity = '1';
+            draggedItem = null;
+            updateColumnOrderStateAndGenerateConfig();
+        }, 0);
+    });
+    colList.addEventListener('dragover', e => e.preventDefault());
+    colList.addEventListener('drop', e => {
+        e.preventDefault();
+        if (e.target.tagName === 'LI' && draggedItem) {
+            colList.insertBefore(draggedItem, e.target);
+        }
+    });
+
+    viewOptionsState = { order: [], rowGroup: { dataSrc: null }, aggregate: { func: 'count', columnIndex: null }, colReorder: false, columnDefs: [] };
+    generateAndApplyDtConfig();
+}
+
+function handleAddSort() {
+    if (headers.length === 0) return;
+    const sortList = document.getElementById('sort-list');
+    const sortItem = document.createElement('div');
+    sortItem.className = 'sort-item';
+    sortItem.innerHTML = `<select>${headers.map((h, i) => `<option value="${i}">${h}</option>`).join('')}</select><select><option value="asc">Ascending</option><option value="desc">Descending</option></select><button>Remove</button>`;
+    sortList.appendChild(sortItem);
+    sortItem.querySelector('button').addEventListener('click', () => { sortItem.remove(); updateSortStateAndGenerateConfig(); });
+    sortItem.querySelectorAll('select').forEach(sel => sel.addEventListener('change', updateSortStateAndGenerateConfig));
+    updateSortStateAndGenerateConfig();
+}
+
+function updateSortStateAndGenerateConfig() {
+    const sortItems = document.querySelectorAll('#sort-list .sort-item');
+    viewOptionsState.order = Array.from(sortItems).map(item => [parseInt(item.children[0].value), item.children[1].value]);
+    generateAndApplyDtConfig();
+}
+
+function handleAddGroup() {
+    if (headers.length === 0) return;
+    const groupList = document.getElementById('group-list');
+    groupList.innerHTML = '';
+    const groupItem = document.createElement('div');
+    groupItem.className = 'group-item';
+    groupItem.innerHTML = `<select class="group-by-select"><option value="">None</option>${headers.map((h, i) => `<option value="${i}">${h}</option>`).join('')}</select><select class="aggregate-col-select" style="display: none;">${headers.map((h, i) => `<option value="${i}">${h}</option>`).join('')}</select><button>Remove</button>`;
+    groupList.appendChild(groupItem);
+    groupItem.querySelector('button').addEventListener('click', () => { groupItem.remove(); updateGroupStateAndGenerateConfig(); });
+    groupItem.querySelectorAll('select').forEach(sel => sel.addEventListener('change', updateGroupStateAndGenerateConfig));
+    document.getElementById('group-aggregate').addEventListener('change', updateGroupStateAndGenerateConfig);
+    updateGroupStateAndGenerateConfig();
+}
+
+function updateGroupStateAndGenerateConfig() {
+    const groupSelect = document.querySelector('#group-list .group-by-select');
+    const aggFuncSelect = document.getElementById('group-aggregate');
+    const aggColSelect = document.querySelector('#group-list .aggregate-col-select');
+    
+    if (groupSelect && groupSelect.value !== '') {
+        viewOptionsState.rowGroup.dataSrc = parseInt(groupSelect.value);
+        viewOptionsState.aggregate.func = aggFuncSelect.value;
+        if ((aggFuncSelect.value === 'sum' || aggFuncSelect.value === 'avg') && aggColSelect) {
+            aggColSelect.style.display = 'inline-block';
+            viewOptionsState.aggregate.columnIndex = parseInt(aggColSelect.value);
+        } else {
+            if(aggColSelect) aggColSelect.style.display = 'none';
+            viewOptionsState.aggregate.columnIndex = null;
+        }
+    } else {
+        viewOptionsState.rowGroup.dataSrc = null;
+        viewOptionsState.aggregate.func = null;
+        viewOptionsState.aggregate.columnIndex = null;
+        if(aggColSelect) aggColSelect.style.display = 'none';
+    }
+    generateAndApplyDtConfig();
+}
+
+function handleColOrderToggle(e) {
+    if (e.target.tagName !== 'BUTTON') return;
+    const list = document.getElementById('column-order-list');
+    document.querySelectorAll('#col-order-toggle button').forEach(btn => btn.classList.remove('active'));
+    e.target.classList.add('active');
+    if (e.target.dataset.value === 'manual') {
+        viewOptionsState.colReorder = true;
+        list.classList.remove('hidden');
+        updateColumnOrderStateAndGenerateConfig();
+    } else {
+        viewOptionsState.colReorder = false;
+        list.classList.add('hidden');
+        generateAndApplyDtConfig();
+    }
+}
+
+function updateColumnOrderStateAndGenerateConfig() {
+    if (!viewOptionsState.colReorder) return;
+    const orderedCols = Array.from(document.querySelectorAll('#column-order-list li')).map(li => li.textContent);
+    const newOrder = orderedCols.map(name => headers.indexOf(name));
+    viewOptionsState.colReorder = { order: newOrder };
+    generateAndApplyDtConfig();
+}
+
+function handleColWidthToggle(e) {
+    if (e.target.tagName !== 'BUTTON') return;
+    document.querySelectorAll('#col-width-toggle button').forEach(btn => btn.classList.remove('active'));
+    e.target.classList.add('active');
+    const width = e.target.dataset.value;
+    viewOptionsState.columnDefs = [];
+    if (width === 'narrow') viewOptionsState.columnDefs.push({ targets: '_all', width: '50px' });
+    else if (width === 'wide') viewOptionsState.columnDefs.push({ targets: '_all', width: '150px' });
+    generateAndApplyDtConfig();
+}
+
+function generateAndApplyDtConfig() {
+    let config = { paging: true, searching: true };
+    if (viewOptionsState.order.length > 0) config.order = viewOptionsState.order;
+    if (viewOptionsState.rowGroup.dataSrc !== null) config.rowGroup = { dataSrc: viewOptionsState.rowGroup.dataSrc };
+    if (viewOptionsState.colReorder) config.colReorder = viewOptionsState.colReorder;
+    if (viewOptionsState.columnDefs.length > 0) config.columnDefs = viewOptionsState.columnDefs;
+    datatableEditor.setValue(JSON.stringify(config, null, 2));
+}
+
+// --- SQL & OTHER FUNCTIONS ---
 function runSQL() {
     const query = sqlEditor.getValue().trim();
     const actions = document.getElementById('sql-actions');
