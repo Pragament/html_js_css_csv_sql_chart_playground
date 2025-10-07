@@ -1,22 +1,30 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Spreadsheet App</title>
-  <link rel="stylesheet" href="styles.css" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spreadsheet App</title>
+    <link rel="stylesheet" href="styles.css" />
 
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/2.0.8/css/dataTables.dataTables.css" />
+    <link rel="stylesheet" href="https://cdn.datatables.net/rowgroup/1.5.0/css/rowGroup.dataTables.css" />
+    <link rel="stylesheet" href="https://cdn.datatables.net/colreorder/2.0.3/css/colReorder.dataTables.css" />
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js" defer></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js" defer></script>
-
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/sql-wasm.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
-  <script src="https://unpkg.com/mocha@10.2.0/mocha.js"></script>
-  <script src="https://unpkg.com/chai@4.3.7/chai.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/sql-wasm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script src="https://cdn.datatables.net/2.0.8/js/dataTables.js" defer></script>
+    <script src="https://cdn.datatables.net/rowgroup/1.5.0/js/dataTables.rowGroup.js" defer></script>
+    <script src="https://cdn.datatables.net/colreorder/2.0.3/js/dataTables.colReorder.js" defer></script>
+    <script src="https://unpkg.com/mocha@10.2.0/mocha.js"></script>
+    <script src="https://unpkg.com/chai@4.3.7/chai.js"></script>
 </head>
 <body>
   <div class="container">
@@ -99,7 +107,48 @@
             </div>
 
             <div class="tab-content" id="filtered-views-tab">
-                <textarea id="datatable-config"></textarea>
+                <div class="view-builder-area">
+                    <div class="view-builder-editor">
+                        <textarea id="datatable-config"></textarea>
+                    </div>
+                    <div id="view-options-panel">
+                        <h4>View Options</h4>
+                        <div class="view-option">
+                            <label>Sort by</label>
+                            <div id="sort-list"></div>
+                            <button id="add-sort-btn">Add</button>
+                        </div>
+                        <div class="view-option">
+                            <label>Group by</label>
+                             <div id="group-list"></div>
+                            <button id="add-group-btn">Add</button>
+                        </div>
+                        <div class="view-option">
+                            <label>Group aggregate</label>
+                            <select id="group-aggregate">
+                                <option value="count">COUNT</option>
+                                <option value="sum">SUM</option>
+                                <option value="avg">AVG</option>
+                            </select>
+                        </div>
+                        <div class="view-option">
+                            <label>Column order</label>
+                            <div class="toggle-buttons" id="col-order-toggle">
+                                <button class="active" data-value="auto">Automatic</button>
+                                <button data-value="manual">Manual</button>
+                            </div>
+                            <ul id="column-order-list" class="hidden"></ul>
+                        </div>
+                        <div class="view-option">
+                            <label>Column width</label>
+                            <div class="toggle-buttons" id="col-width-toggle">
+                                <button class="active" data-value="default">Default</button>
+                                <button data-value="narrow">Narrow</button>
+                                <button data-value="wide">Wide</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <button id="apply-datatable-config">Apply</button>
                 <div id="datatable-container">
                     <p class="placeholder-text">DataTable will be rendered here.</p>
@@ -111,6 +160,11 @@
                     <div class="sql-editor-wrapper"><textarea id="sql-query"></textarea></div>
                     <div id="sql-history-container">
                         <h4>Query History</h4>
+                        <div class="history-toolbar">
+                            <button id="clear-history">Clear History</button>
+                            <button id="show-favorites">Show Favorites</button>
+                            <button id="show-all">Show All</button>
+                        </div>
                         <ul id="sql-history-list"></ul>
                     </div>
                 </div>

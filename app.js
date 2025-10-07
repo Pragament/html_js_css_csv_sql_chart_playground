@@ -6,7 +6,16 @@ let datatableEditor;
 let dataTableInstance = null;
 let lastSqlResult = null;
 let sqlChartInstance = null;
-const SQL_HISTORY_KEY = 'spreadsheet_sql_history';
+const SQL_HISTORY_KEY = 'spreadsheet_sql_history_enhanced';
+
+// State for the View Options builder
+let viewOptionsState = {
+    order: [],
+    rowGroup: { dataSrc: null },
+    aggregate: { func: 'count', columnIndex: null },
+    colReorder: false,
+    columnDefs: []
+};
 
 // YOUR ORIGINAL GLOBAL VARIABLES (PRESERVED)
 const sampleData = {
@@ -214,9 +223,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     datatableEditor.setValue(`{\n  "paging": true,\n  "columnDefs": [\n    { "targets": 2, "visible": false }\n  ]\n}`);
 
-    // --- Initialize Event Listeners ---
     const fileInput = document.getElementById('file-input');
-    const formulaBar = document.getElementById('formula-bar');
     
     document.getElementById('import-btn').addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', handleFileSelect);
@@ -226,7 +233,6 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('add-row').addEventListener('click', addRow);
     document.getElementById('clear-data').addEventListener('click', clearData);
     document.getElementById('create-chart').addEventListener('click', createChart);
-    
     document.getElementById('apply-datatable-config').addEventListener('click', applyDataTableConfig);
     document.getElementById('run-sql').addEventListener('click', runSQL);
     document.getElementById('export-sql-csv').addEventListener('click', () => exportSqlResults('csv'));
@@ -234,7 +240,16 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('sql-create-chart').addEventListener('click', createSqlChart);
     document.getElementById('sql-download-chart').addEventListener('click', downloadSqlChart);
 
-    // Tab switching with editor refresh
+    document.getElementById('add-sort-btn').addEventListener('click', handleAddSort);
+    document.getElementById('add-group-btn').addEventListener('click', handleAddGroup);
+    document.getElementById('group-aggregate').addEventListener('change', updateGroupStateAndGenerateConfig);
+    document.getElementById('col-order-toggle').addEventListener('click', handleColOrderToggle);
+    document.getElementById('col-width-toggle').addEventListener('click', handleColWidthToggle);
+
+    document.getElementById('clear-history').addEventListener('click', clearHistory);
+    document.getElementById('show-favorites').addEventListener('click', () => renderSqlHistory('favorites'));
+    document.getElementById('show-all').addEventListener('click', () => renderSqlHistory('all'));
+
     document.querySelectorAll('.tab-button').forEach(button => {
         button.addEventListener('click', function() {
             document.querySelectorAll('.tab-button, .tab-content').forEach(el => el.classList.remove('active'));
@@ -247,17 +262,10 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Sample file loading
     document.querySelectorAll('#sample-files li').forEach(item => {
-        item.addEventListener('click', function() {
-            loadSampleData(this.getAttribute('data-file'));
-        });
+        item.addEventListener('click', function() { loadSampleData(this.getAttribute('data-file')); });
     });
 
-    // Your original formula bar and other listeners...
-    // ...
-
-    // Initialize Database and load initial data
     initSqlJs({ locateFile: file => `https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/${file}` })
     .then(SQL_ => {
         SQL = SQL_;
@@ -533,30 +541,33 @@ document.addEventListener('DOMContentLoaded', function() {
 // --- ALL YOUR ORIGINAL FUNCTIONS (PRESERVED AND UNCHANGED) ---
 
 function updateCellValue(row, col, value) {
-    // This is your full original function
     const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
     if (!cell) return;
+
     if (value.startsWith('=')) {
         formulas[row] = formulas[row] || [];
         formulas[row][col] = value;
-    } else if (formulas[row]?.[col]) {
-        delete formulas[row][col];
+    } else {
+        if (formulas[row]?.[col]) {
+            delete formulas[row][col];
+        }
     }
+
     currentData[row] = currentData[row] || [];
     currentData[row][col] = evaluateFormula(value, row, col);
     if (cell) cell.textContent = currentData[row][col];
+
     updateSQLDatabase();
     renderSpreadsheet();
 }
 
 function evaluateFormula(formula, row, col) {
-    // This is your full original, complex evaluateFormula function.
     if (!formula.startsWith('=')) return formula;
     try {
         let expr = formula.slice(1).replace(/[A-Z]+\d+/g, (ref) => {
             const cellRef = parseCellReference(ref);
             if (!cellRef || currentData[cellRef.row] === undefined || currentData[cellRef.row][cellRef.col] === undefined) return 0;
-            return currentData[cellRef.row][cellRef.col] || 0;
+            return parseFloat(currentData[cellRef.row][cellRef.col]) || 0;
         });
         return eval(expr);
     } catch (e) {
@@ -581,7 +592,6 @@ function loadSampleData(key) {
     const data = sampleData[key];
     if(data) processCSVData(data);
 }
-
 function handleFileSelect(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -593,7 +603,6 @@ function handleFileSelect(event) {
     if (file.name.endsWith('.csv')) reader.readAsText(file);
     else reader.readAsArrayBuffer(file);
 }
-
 function processCSVData(csvString) {
     console.log('Processing CSV data');
     try {
@@ -620,7 +629,6 @@ function processCSVData(csvString) {
         alert('Error processing CSV file');
     }
 }
-
 function processExcelData(arrayBuffer) {
     console.log('Processing Excel data');
     try {
@@ -647,7 +655,6 @@ function processExcelData(arrayBuffer) {
         alert('Error processing Excel file');
     }
 }
-
 function renderSpreadsheet() {
     const headerRow = document.getElementById('header-row');
     const dataBody = document.getElementById('data-body');
@@ -659,7 +666,6 @@ function renderSpreadsheet() {
         th.textContent = header;
         th.contentEditable = true;
         th.dataset.column = index;
-        th.addEventListener('blur', () => { headers[index] = th.textContent.trim() || `Column${index + 1}`; updateSQLDatabase(); updateChartDropdowns(); });
         headerRow.appendChild(th);
     });
 
@@ -676,23 +682,18 @@ function renderSpreadsheet() {
             td.contentEditable = true;
             td.dataset.row = rowIndex;
             td.dataset.column = colIndex;
-            td.addEventListener('blur', () => {
-                updateCellValue(rowIndex, colIndex, td.textContent.trim());
-            });
             tr.appendChild(td);
         });
         dataBody.appendChild(tr);
     });
 }
-
 function addColumn() { headers.push(`Column${headers.length + 1}`); currentData.forEach(row => row.push('')); renderSpreadsheet(); updateSQLDatabase(); updateChartDropdowns(); }
 function addRow() { currentData.push(Array(headers.length).fill('')); renderSpreadsheet(); updateSQLDatabase(); }
 function clearData() { if (confirm('Clear all data?')) { headers = []; currentData = []; charts.forEach(c => c.chart.destroy()); charts = []; document.getElementById('chart-list').innerHTML = ''; renderSpreadsheet(); updateSQLDatabase(); updateChartDropdowns(); } }
-
 function updateSQLDatabase() {
-    if (!db || !headers || headers.length === 0) return;
+    if (!db || headers.length === 0) return;
     db.run('DROP TABLE IF EXISTS data');
-    const sanitizedHeaders = headers.map(h => `"${h.replace(/"/g, '""')}"`);
+    const sanitizedHeaders = headers.map(h => `"${(h || 'column').replace(/"/g, '""')}"`);
     db.run(`CREATE TABLE data (${sanitizedHeaders.join(', ')})`);
     const stmt = db.prepare(`INSERT INTO data VALUES (${headers.map(() => '?').join(',')})`);
     currentData.forEach(row => {
@@ -701,16 +702,40 @@ function updateSQLDatabase() {
     stmt.free();
 }
 
-// --- NEW AND MODIFIED FUNCTIONS ---
-
+// --- VIEW OPTIONS FUNCTIONS ---
 function applyDataTableConfig() {
     const container = document.getElementById('datatable-container');
     if (headers.length === 0) { container.innerHTML = `<p class="placeholder-text">No data to display.</p>`; return; }
     if (dataTableInstance) dataTableInstance.destroy();
+    
     let config;
-    try { config = new Function(`return ${datatableEditor.getValue()}`)(); } catch (e) { container.innerHTML = `<p class="error-text">Error in config:\n${e.message}</p>`; return; }
+    try { 
+        config = new Function('return ' + datatableEditor.getValue())();
+    } catch (e) { 
+        container.innerHTML = `<p class="error-text">Error in JSON config:\n${e.message}</p>`; return;
+    }
+    
+    if (config.rowGroup && config.rowGroup.dataSrc !== null) {
+        const aggFunc = viewOptionsState.aggregate.func;
+        const aggColIdx = viewOptionsState.aggregate.columnIndex;
+
+        config.rowGroup.startRender = (rows, group) => {
+            let count = rows.count();
+            let aggregateDisplay = `(${count} rows)`;
+            
+            if ((aggFunc === 'sum' || aggFunc === 'avg') && aggColIdx !== null && count > 0) {
+                const sum = rows.data().pluck(aggColIdx).reduce((a, b) => a + (parseFloat(b) || 0), 0);
+                const aggValue = (aggFunc === 'avg') ? (sum / count).toFixed(2) : sum.toFixed(2);
+                aggregateDisplay += ` — ${aggFunc.toUpperCase()} of ${headers[aggColIdx]}: ${aggValue}`;
+            }
+            return group + ' ' + aggregateDisplay;
+        };
+        config.rowGroup.endRender = null;
+    }
+
     container.innerHTML = `<table id="filtered-table" class="display" style="width:100%"><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead></table>`;
     config.data = currentData;
+    
     try { 
         dataTableInstance = new DataTable('#filtered-table', config); 
     } catch (e) { 
@@ -718,6 +743,137 @@ function applyDataTableConfig() {
     }
 }
 
+function populateViewOptionsUI() {
+    document.getElementById('sort-list').innerHTML = '';
+    document.getElementById('group-list').innerHTML = '';
+    const colList = document.getElementById('column-order-list');
+    colList.innerHTML = headers.map(h => `<li draggable="true">${h}</li>`).join('');
+    
+    let draggedItem = null;
+    colList.addEventListener('dragstart', e => {
+        draggedItem = e.target;
+        setTimeout(() => e.target.style.opacity = '0.5', 0);
+    });
+    colList.addEventListener('dragend', e => {
+        setTimeout(() => {
+            if (e.target) e.target.style.opacity = '1';
+            draggedItem = null;
+            updateColumnOrderStateAndGenerateConfig();
+        }, 0);
+    });
+    colList.addEventListener('dragover', e => e.preventDefault());
+    colList.addEventListener('drop', e => {
+        e.preventDefault();
+        if (e.target.tagName === 'LI' && draggedItem) {
+            colList.insertBefore(draggedItem, e.target);
+        }
+    });
+
+    viewOptionsState = { order: [], rowGroup: { dataSrc: null }, aggregate: { func: 'count', columnIndex: null }, colReorder: false, columnDefs: [] };
+    generateAndApplyDtConfig();
+}
+
+function handleAddSort() {
+    if (headers.length === 0) return;
+    const sortList = document.getElementById('sort-list');
+    const sortItem = document.createElement('div');
+    sortItem.className = 'sort-item';
+    sortItem.innerHTML = `<select>${headers.map((h, i) => `<option value="${i}">${h}</option>`).join('')}</select><select><option value="asc">Ascending</option><option value="desc">Descending</option></select><button>Remove</button>`;
+    sortList.appendChild(sortItem);
+    sortItem.querySelector('button').addEventListener('click', () => { sortItem.remove(); updateSortStateAndGenerateConfig(); });
+    sortItem.querySelectorAll('select').forEach(sel => sel.addEventListener('change', updateSortStateAndGenerateConfig));
+    updateSortStateAndGenerateConfig();
+}
+
+function updateSortStateAndGenerateConfig() {
+    const sortItems = document.querySelectorAll('#sort-list .sort-item');
+    viewOptionsState.order = Array.from(sortItems).map(item => [parseInt(item.children[0].value), item.children[1].value]);
+    generateAndApplyDtConfig();
+}
+
+function handleAddGroup() {
+    if (headers.length === 0) return;
+    const groupList = document.getElementById('group-list');
+    groupList.innerHTML = '';
+    const groupItem = document.createElement('div');
+    groupItem.className = 'group-item';
+    groupItem.innerHTML = `<select class="group-by-select"><option value="">None</option>${headers.map((h, i) => `<option value="${i}">${h}</option>`).join('')}</select><select class="aggregate-col-select" style="display: none;">${headers.map((h, i) => `<option value="${i}">${h}</option>`).join('')}</select><button>Remove</button>`;
+    groupList.appendChild(groupItem);
+    groupItem.querySelector('button').addEventListener('click', () => { groupItem.remove(); updateGroupStateAndGenerateConfig(); });
+    groupItem.querySelectorAll('select').forEach(sel => sel.addEventListener('change', updateGroupStateAndGenerateConfig));
+    document.getElementById('group-aggregate').addEventListener('change', updateGroupStateAndGenerateConfig);
+    updateGroupStateAndGenerateConfig();
+}
+
+function updateGroupStateAndGenerateConfig() {
+    const groupSelect = document.querySelector('#group-list .group-by-select');
+    const aggFuncSelect = document.getElementById('group-aggregate');
+    const aggColSelect = document.querySelector('#group-list .aggregate-col-select');
+    
+    if (groupSelect && groupSelect.value !== '') {
+        viewOptionsState.rowGroup.dataSrc = parseInt(groupSelect.value);
+        viewOptionsState.aggregate.func = aggFuncSelect.value;
+        if ((aggFuncSelect.value === 'sum' || aggFuncSelect.value === 'avg') && aggColSelect) {
+            aggColSelect.style.display = 'inline-block';
+            viewOptionsState.aggregate.columnIndex = parseInt(aggColSelect.value);
+        } else {
+            if(aggColSelect) aggColSelect.style.display = 'none';
+            viewOptionsState.aggregate.columnIndex = null;
+        }
+    } else {
+        viewOptionsState.rowGroup.dataSrc = null;
+        viewOptionsState.aggregate.func = null;
+        viewOptionsState.aggregate.columnIndex = null;
+        if(aggColSelect) aggColSelect.style.display = 'none';
+    }
+    generateAndApplyDtConfig();
+}
+
+function handleColOrderToggle(e) {
+    if (e.target.tagName !== 'BUTTON') return;
+    const list = document.getElementById('column-order-list');
+    document.querySelectorAll('#col-order-toggle button').forEach(btn => btn.classList.remove('active'));
+    e.target.classList.add('active');
+    if (e.target.dataset.value === 'manual') {
+        viewOptionsState.colReorder = true;
+        list.classList.remove('hidden');
+        updateColumnOrderStateAndGenerateConfig();
+    } else {
+        viewOptionsState.colReorder = false;
+        list.classList.add('hidden');
+        generateAndApplyDtConfig();
+    }
+}
+
+function updateColumnOrderStateAndGenerateConfig() {
+    if (!viewOptionsState.colReorder) return;
+    const orderedCols = Array.from(document.querySelectorAll('#column-order-list li')).map(li => li.textContent);
+    const newOrder = orderedCols.map(name => headers.indexOf(name));
+    viewOptionsState.colReorder = { order: newOrder };
+    generateAndApplyDtConfig();
+}
+
+function handleColWidthToggle(e) {
+    if (e.target.tagName !== 'BUTTON') return;
+    document.querySelectorAll('#col-width-toggle button').forEach(btn => btn.classList.remove('active'));
+    e.target.classList.add('active');
+    const width = e.target.dataset.value;
+    viewOptionsState.columnDefs = [];
+    if (width === 'narrow') viewOptionsState.columnDefs.push({ targets: '_all', width: '50px' });
+    else if (width === 'wide') viewOptionsState.columnDefs.push({ targets: '_all', width: '150px' });
+    generateAndApplyDtConfig();
+}
+
+function generateAndApplyDtConfig() {
+    let config = { paging: true, searching: true };
+    if (viewOptionsState.order.length > 0) config.order = viewOptionsState.order;
+    if (viewOptionsState.rowGroup.dataSrc !== null) config.rowGroup = { dataSrc: viewOptionsState.rowGroup.dataSrc };
+    if (viewOptionsState.colReorder) config.colReorder = viewOptionsState.colReorder;
+    if (viewOptionsState.columnDefs.length > 0) config.columnDefs = viewOptionsState.columnDefs;
+    datatableEditor.setValue(JSON.stringify(config, null, 2));
+}
+
+// --- SQL & OTHER FUNCTIONS ---
 function runSQL() {
     const query = sqlEditor.getValue().trim();
     const actions = document.getElementById('sql-actions');
@@ -753,21 +909,167 @@ function renderSqlResults(result, error = null) {
 }
 function addToSqlHistory(query) {
     let history = JSON.parse(localStorage.getItem(SQL_HISTORY_KEY)) || [];
-    history = history.filter(q => q !== query);
-    history.unshift(query);
-    if (history.length > 20) history.length = 20;
+    
+    // Check if query already exists
+    const existingIndex = history.findIndex(item => item.query === query);
+    
+    if (existingIndex !== -1) {
+        // Update timestamp for existing query
+        history[existingIndex].timestamp = Date.now();
+        history[existingIndex].usageCount = (history[existingIndex].usageCount || 1) + 1;
+    } else {
+        // Add new query
+        history.unshift({
+            id: generateId(),
+            query: query,
+            timestamp: Date.now(),
+            usageCount: 1,
+            isFavorite: false,
+            name: `Query ${history.length + 1}`
+        });
+    }
+    
+    // Keep only last 50 items (excluding favorites)
+    const favorites = history.filter(item => item.isFavorite);
+    const nonFavorites = history.filter(item => !item.isFavorite).slice(0, 50 - favorites.length);
+    history = [...favorites, ...nonFavorites];
+    
     localStorage.setItem(SQL_HISTORY_KEY, JSON.stringify(history));
     renderSqlHistory();
 }
-function renderSqlHistory() {
+
+function generateId() {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2);
+}
+
+
+function renderSqlHistory(filter = 'all') {
     const historyList = document.getElementById('sql-history-list');
-    const history = JSON.parse(localStorage.getItem(SQL_HISTORY_KEY)) || [];
-    if (history.length === 0) { historyList.innerHTML = '<li>No history yet.</li>'; return; }
-    historyList.innerHTML = history.map(q => `<li>${q}</li>`).join('');
-    historyList.querySelectorAll('li').forEach((li, i) => {
-        li.addEventListener('click', () => { sqlEditor.setValue(history[i]); sqlEditor.focus(); });
+    let history = JSON.parse(localStorage.getItem(SQL_HISTORY_KEY)) || [];
+    
+    // Sort by timestamp (newest first), but keep favorites at top
+    history.sort((a, b) => {
+        if (a.isFavorite && !b.isFavorite) return -1;
+        if (!a.isFavorite && b.isFavorite) return 1;
+        return b.timestamp - a.timestamp;
+    });
+    
+    // Apply filter
+    if (filter === 'favorites') {
+        history = history.filter(item => item.isFavorite);
+    }
+    
+    if (history.length === 0) {
+        historyList.innerHTML = '<li class="history-item"><div class="history-item-content">No queries yet.</div></li>';
+        return;
+    }
+    
+    historyList.innerHTML = history.map(item => `
+        <li class="history-item ${item.isFavorite ? 'favorite' : ''}" data-id="${item.id}">
+            <div class="history-item-content" title="${item.query}">
+                <strong>${escapeHtml(item.name)}</strong><br>
+                <small>${escapeHtml(item.query)}</small>
+            </div>
+            <div class="history-item-actions">
+                <button class="history-action-btn rename" title="Rename">✏️</button>
+                <button class="history-action-btn favorite ${item.isFavorite ? 'active' : ''}" title="${item.isFavorite ? 'Remove from favorites' : 'Add to favorites'}">
+                    ${item.isFavorite ? '★' : '☆'}
+                </button>
+                <button class="history-action-btn delete" title="Delete">🗑️</button>
+            </div>
+        </li>
+    `).join('');
+    
+    // Add event listeners
+    historyList.querySelectorAll('.history-item').forEach((item, index) => {
+        const id = item.dataset.id;
+        const query = history.find(h => h.id === id)?.query;
+        
+        // Click on item content to load query
+        item.querySelector('.history-item-content').addEventListener('click', () => {
+            if (query) {
+                sqlEditor.setValue(query);
+                sqlEditor.focus();
+            }
+        });
+        
+        // Rename button
+        item.querySelector('.rename').addEventListener('click', (e) => {
+            e.stopPropagation();
+            renameQuery(id);
+        });
+        
+        // Favorite button
+        item.querySelector('.favorite').addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleFavorite(id);
+        });
+        
+        // Delete button
+        item.querySelector('.delete').addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteQuery(id);
+        });
     });
 }
+
+function renameQuery(id) {
+    let history = JSON.parse(localStorage.getItem(SQL_HISTORY_KEY)) || [];
+    const item = history.find(h => h.id === id);
+    if (!item) return;
+    
+    const newName = prompt('Enter a name for this query:', item.name);
+    if (newName && newName.trim()) {
+        item.name = newName.trim();
+        localStorage.setItem(SQL_HISTORY_KEY, JSON.stringify(history));
+        renderSqlHistory();
+    }
+}
+
+function toggleFavorite(id) {
+    let history = JSON.parse(localStorage.getItem(SQL_HISTORY_KEY)) || [];
+    const item = history.find(h => h.id === id);
+    if (item) {
+        item.isFavorite = !item.isFavorite;
+        item.timestamp = Date.now(); // Update timestamp when favoriting
+        localStorage.setItem(SQL_HISTORY_KEY, JSON.stringify(history));
+        renderSqlHistory();
+    }
+}
+
+function deleteQuery(id) {
+    if (confirm('Are you sure you want to delete this query from history?')) {
+        let history = JSON.parse(localStorage.getItem(SQL_HISTORY_KEY)) || [];
+        history = history.filter(h => h.id !== id);
+        localStorage.setItem(SQL_HISTORY_KEY, JSON.stringify(history));
+        renderSqlHistory();
+    }
+}
+
+function clearHistory() {
+    let history = JSON.parse(localStorage.getItem(SQL_HISTORY_KEY)) || [];
+    const favorites = history.filter(item => item.isFavorite);
+    
+    if (favorites.length === history.length) {
+        alert('All queries are favorites. No queries to clear.');
+        return;
+    }
+    
+    if (confirm(`Clear all non-favorite queries? (${history.length - favorites.length} queries will be removed)`)) {
+        localStorage.setItem(SQL_HISTORY_KEY, JSON.stringify(favorites));
+        renderSqlHistory();
+    }
+}
+
+function escapeHtml(unsafe) {
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
 function updateSqlChartControls(columns) {
     const xAxisSelect = document.getElementById('sql-x-axis');
     const yAxisSelect = document.getElementById('sql-y-axis');
