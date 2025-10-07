@@ -23,23 +23,61 @@
     <script src="https://cdn.datatables.net/2.0.8/js/dataTables.js" defer></script>
     <script src="https://cdn.datatables.net/rowgroup/1.5.0/js/dataTables.rowGroup.js" defer></script>
     <script src="https://cdn.datatables.net/colreorder/2.0.3/js/dataTables.colReorder.js" defer></script>
+    <script src="https://unpkg.com/mocha@10.2.0/mocha.js"></script>
+    <script src="https://unpkg.com/chai@4.3.7/chai.js"></script>
 </head>
 <body>
-    <div class="container">
-        <div class="sidebar">
-            <h2>Loaded Files</h2>
-            <ul id="sample-files">
-                <li data-file="sales">Sales Data</li>
-                <li data-file="employees">Employee Data</li>
-                <li data-file="inventory">Inventory Data</li>
-            </ul>
-            <h2>Tests</h2>
-            <ul id="test-list">
-                <li>Fill Sequence Test</li>
-                <li>Sum Function Test</li>
-                <li>Double Click Fill Test</li>
-            </ul>
-        </div>
+  <div class="container">
+    <div class="sidebar">
+      <h2>Sample CSV Files</h2>
+      <ul id="sample-files">
+        <li data-file="sales">Sales Data</li>
+        <li data-file="employees">Employee Data</li>
+        <li data-file="inventory">Inventory Data</li>
+      </ul>
+      <h2>Saved Spreadsheets</h2>
+      <ul id="saved-files"></ul>
+      <h2>Tests</h2>
+      <ul id="test-list"></ul>
+    </div>
+
+    <div class="main-content">
+      <div class="toolbar">
+        <button id="loginBtn">Login</button>
+        <button id="logoutBtn" style="display:none;">Logout</button>
+        <input id="sheet-name" type="text" placeholder="Sheet Name" style="margin-right:10px;padding:8px;border:1px solid #ccc;border-radius:4px;">
+        <button id="saveBtn" style="display:none;">Save</button>
+        <button id="import-btn">Import File</button>
+        <input type="file" id="file-input" accept=".csv,.xlsx,.xls" style="display: none;">
+        <button id="export-csv">Export CSV</button>
+        <button id="export-excel">Export Excel</button>
+        <button id="add-column">Add Column</button>
+        <button id="add-row">Add Row</button>
+        <button id="clear-data">Clear Data</button>
+        <input id="formula-bar" type="text" placeholder="Formula (e.g., =SUM(A1:A5))">
+      </div>
+
+      <div class="tabs">
+        <button class="tab-button active" data-tab="spreadsheet-tab">Spreadsheet</button>
+        <button class="tab-button" data-tab="sql-tab">SQL Query</button>
+        <button class="tab-button" data-tab="chart-tab">Charts</button>
+      </div>
+
+      <div class="tab-content active" id="spreadsheet-tab">
+        <div id="notification" class="notification"></div>
+        <div id="loading" style="display: none;">Loading...</div>
+        <table id="spreadsheet">
+          <thead>
+            <tr id="header-row"></tr>
+          </thead>
+          <tbody id="data-body"></tbody>
+        </table>
+      </div>
+
+      <div class="tab-content" id="sql-tab">
+        <textarea id="sql-query" rows="10" placeholder="Enter SQL query"></textarea>
+        <button id="run-sql" disabled>Run SQL</button>
+      </div>
 
         <div class="main-content">
             <div class="toolbar">
@@ -167,6 +205,93 @@
             </div>
         </div>
     </div>
+  </div>
+
+  <!-- Mocha & Chai setup -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mocha/mocha.css" />
+  <!-- <div id="mocha" style="background:#b33333; color:#222; margin:16px; padding:8px; border-radius:6px;"></div> -->
+  <script src="https://cdn.jsdelivr.net/npm/mocha/mocha.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chai/chai.js"></script>
+  <script>
+    (function waitForChai() {
+      if (window.chai && window.mocha) {
+        mocha.setup('bdd');
+        window.expect = chai.expect;
+      } else {
+        setTimeout(waitForChai, 30);
+      }
+    })();
+  </script>
+
+  <script src="app.js" defer></script>
+  <script type="module" src="firebase.js"></script>
+  <script type="module" src="user-test.js"></script>
+
+  <!-- ✅ Excel-like Formula Insertion + Evaluation on Enter -->
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      // ✅ Click on cell inserts reference into formula bar at cursor position
+      document.addEventListener('click', (event) => {
+        const cell = event.target.closest('td[data-row][data-column]');
+        if (!cell) return;
+
+        const formulaBar = document.querySelector('#formula-bar');
+        if (!formulaBar || document.activeElement !== formulaBar) return;
+
+        const row = parseInt(cell.getAttribute('data-row')) + 1;
+        const col = parseInt(cell.getAttribute('data-column'));
+        const colLetter = String.fromCharCode(65 + col);
+        const cellRef = `${colLetter}${row}`;
+
+        // ✅ Insert ref at cursor position, not overwrite
+        const cursorPos = formulaBar.selectionStart || formulaBar.value.length;
+        const before = formulaBar.value.slice(0, cursorPos);
+        const after = formulaBar.value.slice(cursorPos);
+        formulaBar.value = before + cellRef + after;
+
+        formulaBar.dispatchEvent(new Event('input', { bubbles: true }));
+
+        // ✅ Keep cursor after inserted ref
+        formulaBar.focus();
+        formulaBar.setSelectionRange(cursorPos + cellRef.length, cursorPos + cellRef.length);
+      });
+
+      // ✅ Press Enter to evaluate =B2+C2 style formulas
+      const formulaBar = document.getElementById('formula-bar');
+      formulaBar.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && window.selectedCells?.length > 0) {
+          const [rowCol] = window.selectedCells;
+          const [row, col] = rowCol.split('-').map(Number);
+          const formula = formulaBar.value;
+
+          // Store formula
+          window.formulas[row][col] = formula;
+          window.currentData[row] = window.currentData[row] || [];
+          window.currentData[row][col] = formula;
+
+          // Evaluate simple =B2+C2 formulas
+          if (formula.startsWith('=')) {
+            const match = formula.match(/^=([A-Z]+\d+)\+([A-Z]+\d+)$/i);
+            if (match) {
+              const val1 = getCellNumericValue(match[1]);
+              const val2 = getCellNumericValue(match[2]);
+              const result = val1 + val2;
+              window.currentData[row][col] = result.toString();
+              const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
+              if (cell) cell.textContent = result.toString();
+              window.updateCellValue(row, col, result.toString());
+              window.renderSpreadsheet();
+              return;
+            }
+          }
+
+          // If not valid formula, show as text
+          const cell = document.querySelector(`td[data-row="${row}"][data-column="${col}"]`);
+          if (cell) cell.textContent = formula;
+          window.updateCellValue(row, col, formula);
+          window.renderSpreadsheet();
+        }
+      });
 
     <script src="app.js"></script>
 </body>
